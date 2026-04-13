@@ -1,0 +1,240 @@
+# ragtriage configuration file
+# Copy this to your project and customize
+
+# RAG System Configuration
+rag:
+  # Your RAG endpoint
+  endpoint: http://localhost:8000/ask
+  
+  # Request timeout in seconds
+  timeout: 30
+  
+  # Headers if needed (e.g., API keys)
+  headers:
+    # Authorization: Bearer your-token
+  
+  # Method: GET or POST
+  method: POST
+  
+  # Request body template
+  # Use {query} as placeholder for the user's question
+  request_template:
+    query: "{query}"
+    top_k: 3
+  
+  # Response parsing
+  # JSON path to extract answer and sources
+  response_mapping:
+    answer: answer
+    sources: sources
+
+# LLM Configuration
+llm:
+  # Provider: openai, anthropic, or local
+  provider: openai
+  
+  # Model for classification (can be cheaper)
+  classification_model: gpt-3.5-turbo
+  
+  # Model for evaluation (needs to be good)
+  evaluation_model: gpt-4
+  
+  # Model for gap analysis (needs to be good)
+  analysis_model: gpt-4
+  
+  # Temperature (0.0 = deterministic, 1.0 = creative)
+  temperature: 0.0
+
+# Lane Classification
+lanes:
+  # Few-shot examples improve accuracy
+  incident_examples:
+    - "My timesheet totals are not accurate"
+    - "Sick leave balance is wrong for my team"
+    - "The system is not working correctly"
+    - "I can't access the leave page"
+  
+  understanding_examples:
+    - "How do I cancel my subscription?"
+    - "Can I set up auto punch-out?"
+    - "How do I add a manager?"
+    - "Where can I find my timesheet?"
+  
+  workflow_commands:
+    - ticket
+    - demo
+    - support
+    - help
+    - agent
+    - human
+
+# Categories
+# Ordered by priority (1 = highest)
+categories:
+  - name: BILLING
+    priority: 1
+    keywords:
+      - cancel
+      - subscription
+      - billing
+      - refund
+      - payment
+      - invoice
+      - plan
+      - pricing
+      - upgrade
+      - downgrade
+    description: "Revenue-critical: cancellations, refunds, billing issues"
+  
+  - name: LEAVE
+    priority: 2
+    keywords:
+      - leave
+      - vacation
+      - sick
+      - pto
+      - time off
+      - holiday
+      - absence
+      - balance
+      - accrual
+    description: "Core feature: leave management and balances"
+  
+  - name: TIMESHEET
+    priority: 3
+    keywords:
+      - hours
+      - timesheet
+      - time tracking
+      - punch
+      - clock
+      - edit time
+      - overtime
+    description: "Core feature: time tracking and timesheets"
+  
+  - name: MANAGER
+    priority: 4
+    keywords:
+      - manager
+      - admin
+      - permission
+      - access
+      - role
+      - reportee
+      - hierarchy
+      - approve
+    description: "Admin features: permissions and hierarchy"
+  
+  - name: REPORTS
+    priority: 5
+    keywords:
+      - report
+      - export
+      - download
+      - csv
+      - pdf
+      - data
+      - analytics
+    description: "Analytics: reporting and data export"
+  
+  - name: INTEGRATIONS
+    priority: 6
+    keywords:
+      - integration
+      - api
+      - webhook
+      - sync
+      - connect
+      - gusto
+      - payroll
+      - xero
+    description: "Integrations: third-party connections"
+  
+  - name: SETUP
+    priority: 7
+    keywords:
+      - setup
+      - install
+      - add user
+      - invite
+      - onboard
+      - getting started
+      - new employee
+      - activate
+    description: "Onboarding: setup and configuration"
+  
+  - name: NOTIFICATIONS
+    priority: 8
+    keywords:
+      - notification
+      - reminder
+      - alert
+      - email
+      - slack message
+      - announcement
+    description: "Communication: notifications and alerts"
+  
+  - name: GENERAL
+    priority: 99
+    keywords: []
+    description: "Catch-all for edge cases"
+
+# Evaluation Scoring
+scoring:
+  # Dimensions to evaluate
+  dimensions:
+    - relevance
+    - factual_accuracy
+    - completeness
+    - conciseness
+    - source_quality
+  
+  # Thresholds for bucketing
+  thresholds:
+    well_answered: 4.0
+    partial: 2.0
+  
+  # Scale: 1-5
+  min_score: 1
+  max_score: 5
+
+# Output Configuration
+output:
+  # Formats to generate
+  formats:
+    - csv
+    - markdown
+  
+  # Directory for outputs
+  directory: ./output
+  
+  # Number of example queries per category in markdown report
+  examples_per_category: 5
+  
+  # Include raw evaluation data in output
+  include_raw: false
+  
+  # CSV columns to include
+  csv_columns:
+    - query_id
+    - question
+    - category
+    - action
+    - target_article
+    - gap
+    - priority
+
+# Filtering
+filter:
+  # Date range (ISO format)
+  # date_range:
+  #   start: "2024-01-01"
+  #   end: "2024-12-31"
+  
+  # Minimum query length
+  min_length: 10
+  
+  # Skip specific patterns (regex)
+  skip_patterns:
+    - "^\\s*$"  # Empty strings
+    - "^\\d+$"  # Just numbers
