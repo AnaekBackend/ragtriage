@@ -1,0 +1,58 @@
+[project]
+name = "ragtriage"
+version = "0.1.0"
+description = "Turn your RAG failures into a prioritized backlog"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Ujjwal Grover"}
+]
+keywords = ["rag", "evaluation", "support", "documentation", "knowledge-base"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "openai>=1.0.0",
+    "tqdm>=4.65.0",
+    "pandas>=2.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+ragtriage-eval = "ragtriage.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/AnaekBackend/ragtriage"
+Repository = "https://github.com/AnaekBackend/ragtriage"
+Issues = "https://github.com/AnaekBackend/ragtriage/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ragtriage"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I"]

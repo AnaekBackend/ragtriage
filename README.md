@@ -1,274 +1,181 @@
-# ragtriage
+# RAGTriage
 
-> From "How good is my RAG?" to "What should my team write this week?"
-
-**ragtriage** turns your RAG system's failures into a prioritized content backlog. Stop measuring metrics you can't act on. Start fixing the gaps that matter.
+Turn your RAG failures into a prioritized backlog for your documentation team.
 
 ## The Problem
 
-Existing RAG evaluation tools (RAGAS, RAGChecker, DeepEval) tell you:
+You have a RAG system answering support queries. Existing evaluation tools (Ragas, DeepEval, etc.) give you metrics like "faithfulness: 0.72". You don't know what to do with that number.
+
+You need to know:
+- Which queries were answered well
+- Which ones failed
+- Why they failed  
+- What your team should write or fix next
+
+## What RAGTriage Does
+
+Given a dataset of support queries and your RAG system's responses, RAGTriage:
+
+1. **Evaluates** each answer across 5 dimensions (correctness, completeness, context usage, clarity, conciseness)
+2. **Classifies** queries into lanes:
+   - **UNDERSTANDING**: User wants to know how to do something
+   - **INCIDENT**: User reports something is broken
+   - **SPAM**: Marketing pitches, gibberish
+3. **Identifies action items** for partial answers:
+   - **DOC_WRITE**: Write a new article (no relevant context found)
+   - **DOC_UPDATE**: Update existing article (context exists but answer incomplete)
+4. **Generates** a prioritized report for your CS team
+
+## Example Output
+
 ```
-Faithfulness: 0.72
-Answer Relevancy: 0.68
-Context Precision: 0.65
+Total queries: 100
+Understanding queries: 85 (85%)
+  - Well answered: 58 (68%)
+  - Partial answer: 27 (32%)
+
+Action items: 27
+  - Write new article: 5 (19%)
+  - Update existing: 22 (81%)
+
+Top articles to write:
+1. How to Cancel Your Subscription (3 questions)
+2. API Authentication Guide (2 questions)
+
+Top articles to update:
+1. How to Set Up Auto-Punch (4 questions)
+2. Leave Policy Configuration (3 questions)
 ```
-
-But **what do you actually do with that?**
-
-Meanwhile, your support team gets 500 queries/month and has no idea which docs to write, update, or ignore.
-
-## Our Approach: Triage, Don't Just Score
-
-ragtriage uses a **three-lane system** to process real user queries:
-
-```
-Support Queries (100%)
-       ↓
-┌─────────────────┐
-│   Spam Filter   │ → Marketing pitches, gibberish (9%)
-└─────────────────┘
-       ↓
-┌─────────────────┐
-│  Lane Classifier│
-└─────────────────┘
-       ↓
-┌──────────┬──────────┬──────────┐
-│Incident  │Understand│  Workflow│
-│  (14%)   │   (76%)  │  (10%)   │
-└──────────┴──────────┴──────────┘
-       ↓
-Separate    RAG Eval +       "ticket",
-for CS      Categorization   "demo",
-triage      → Action Items   etc.
-```
-
-### Lane 1: Incidents (14%)
-Users reporting product bugs: "sick leave not updating", "system error". These need engineering investigation, not better docs.
-
-### Lane 2: Understanding (76%)
-Users asking how-to questions: "How do I cancel?", "Can I set up auto punch-out?" These are documentation gaps we can fix.
-
-### Lane 3: Workflow Commands (10%)
-Users typing "ticket", "demo", "support". These are bot commands, not RAG questions.
-
-## What You Get
-
-Instead of abstract scores, you get a **CSV file** your CS team can act on today:
-
-| query | category | action | target_article | gap |
-|-------|----------|--------|----------------|-----|
-| "I want to cancel my subscription" | BILLING | doc_write | "How to Cancel Your Subscription" | No cancellation article exists |
-| "How do I set auto punch-out for everyone?" | TIMESHEET | doc_update | "How to set up auto-punch out" | Missing bulk setup instructions |
-
-Plus a **Markdown report** with:
-- Executive summary (well answered %, improvement opportunity)
-- Top articles to write
-- Top articles to update
-- Category breakdown
-
-## Real Example: AttendanceBot Case Study
-
-We ran ragtriage on **1,144 real support queries** over 6 months:
-
-| Metric | Count | % |
-|--------|-------|---|
-| Total queries | 1,144 | 100% |
-| Spam/workflow commands | 453 | 40% |
-| **Real questions** | **691** | **60%** |
-| Well answered | 401 | 58% |
-| Partially answered | **290** | **42%** |
-| Content gaps | 0 | 0% |
-
-**The 290 partial answers broke down into:**
-- 236 understanding issues → Doc updates
-- 54 incident reports → Engineering bugs
-
-**Top action items:**
-1. Write "How to Cancel Your Subscription" (2 queries/week)
-2. Update "How do I assign managers" with permission details (12 queries/month)
-3. Add troubleshooting section to timesheet docs (22 queries/month)
-
-**Result:** CS team had a prioritized backlog instead of guessing what to write.
-
-## Why This Is Different
-
-| Tool | Output | Audience | Actionable? |
-|------|--------|----------|-------------|
-| RAGAS | Scores (0-1) | ML Engineers | ❌ |
-| RAGChecker | Precision/Recall | Data Scientists | ❌ |
-| DeepEval | Test results | Dev Teams | ⚠️ |
-| **ragtriage** | **Doc write/update list** | **CS Teams** | **✅** |
 
 ## Installation
 
 ```bash
-pip install ragtriage
-```
-
-Or from source:
-```bash
-git clone https://github.com/yourusername/ragtriage.git
+# Clone the repository
+git clone https://github.com/AnaekBackend/ragtriage
 cd ragtriage
-pip install -r requirements.txt
+
+# Install with uv
+uv sync
+
+# Or with pip
+pip install -e .
 ```
 
 ## Quick Start
 
-### 1. Prepare Your Data
+1. **Set your OpenAI API key:**
+   ```bash
+   echo "OPENAI_API_KEY=your_key_here" > .env
+   ```
 
-Export your support queries as JSONL:
+2. **Run evaluation on sample data:**
+   ```bash
+   uv run eval
+   ```
+
+3. **View results:**
+   ```bash
+   cat output/report.md
+   open output/action_items.csv  # In Excel/Sheets
+   ```
+
+## Using Your Own Data
+
+Create a JSONL file with your RAG queries and responses:
+
 ```json
-{"query": "How do I cancel my subscription?", "timestamp": "2024-01-15"}
-{"query": "My sick leave balance is wrong", "timestamp": "2024-01-16"}
+{"query": "How do I cancel my subscription?", "contexts": ["context1...", "context2..."], "generated_answer": "To cancel, go to Settings..."}
+{"query": "Why is my timesheet not working?", "contexts": [], "generated_answer": "I'm not sure about that..."}
 ```
 
-### 2. Evaluate Against Your RAG
-
+Then run:
 ```bash
-python -m ragtriage.eval \
-  --queries support_queries.jsonl \
-  --rag-endpoint http://your-rag.com/ask \
-  --output evaluation.jsonl
-```
-
-### 3. Categorize and Generate Actions
-
-```bash
-python -m ragtriage.analyze \
-  --evaluation evaluation.jsonl \
-  --output-dir ./output
-```
-
-### 4. Review Results
-
-```bash
-cat output/action_plan.md
-open output/action_items.csv
+uv run eval --input your_data.jsonl --output-dir my_results
 ```
 
 ## How It Works
 
-### Step 1: Lane Classification (LLM-based)
+### Step 1: Evaluation
 
-Each query is classified into:
-- **INCIDENT**: User reports something is broken
-- **UNDERSTANDING**: User asks how to do something
-- **WORKFLOW**: Command word (ticket, demo, etc.)
-- **SPAM**: Marketing, gibberish, off-topic
+Each query is scored across 5 dimensions (1-5 scale):
+- **Correctness**: Is the information accurate?
+- **Completeness**: Does it answer the full question?
+- **Context Usage**: Does it use retrieved contexts effectively?
+- **Clarity**: Is it easy to understand?
+- **Conciseness**: Is it appropriately brief?
 
-Uses few-shot prompting with real examples.
+Overall score < 3 = "partial answer"
 
-### Step 2: RAG Evaluation (for Understanding lane)
+### Step 2: Lane Classification
 
-For understanding queries, we:
-1. Query your actual RAG system
-2. Get the answer + retrieved docs
-3. Grade quality (1-5) across 5 dimensions:
-   - Correctness
-   - Completeness
-   - Relevance
-   - Source attribution
-   - Actionability
+Queries are classified into:
+- **UNDERSTANDING**: How-to, setup, configuration questions
+- **INCIDENT**: Bug reports, data issues, "not working"
+- **SPAM**: Sales pitches, unrelated content
 
-### Step 3: Gap Analysis (LLM-based)
+Only UNDERSTANDING queries with partial answers proceed to action classification.
 
-For partially answered queries, we determine:
-- **Category**: BILLING, LEAVE, TIMESHEET, etc.
-- **Action**: doc_write (new article) or doc_update (improve existing)
-- **Target Article**: Which doc to create/update
-- **Gap Description**: What's missing
+### Step 3: Action Classification
 
-### Step 4: Prioritization
+For partial understanding queries:
+- **DOC_WRITE**: No relevant contexts retrieved → likely need new article
+- **DOC_UPDATE**: Relevant contexts exist but answer incomplete → enhance existing article
 
-Results are sorted by:
-1. Category (revenue-critical first: billing > timesheet > reports)
-2. Query volume (more asks = higher priority)
-3. RAG score (lower score = more urgent)
+Note: Without your full document library, "DOC_WRITE" means "no relevant context was found" which could mean the doc doesn't exist OR your RAG failed to retrieve it. Both are actionable.
+
+### Step 4: Reporting
+
+Results are compiled into:
+- `report.md`: Executive summary with statistics and top issues
+- `action_items.csv`: Detailed spreadsheet for CS team
+- `analyzed_results.json`: Full data for custom analysis
+
+## Real-World Results
+
+We built RAGTriage while evaluating support queries for AttendanceBot (a B2B SaaS time tracking product).
+
+From 100 sample queries:
+- 85 were genuine understanding questions
+- 58 (68%) were answered well by RAG
+- 27 (32%) got partial answers
+- 22 needed existing docs updated
+- 5 needed new articles written
+
+The tool helped identify that cancellation documentation was missing (multiple users asking) while auto-punch docs needed enhancement (context existed but answer incomplete).
 
 ## Configuration
 
-Create `ragtriage.yaml`:
+Environment variables:
+- `OPENAI_API_KEY`: Required. Used for LLM-based evaluation and classification.
+- `OPENAI_MODEL`: Optional. Default: `gpt-4o-mini`
 
-```yaml
-# RAG System
-rag:
-  endpoint: http://localhost:8000/ask
-  timeout: 30
+## Data Format
 
-# Lane Classification
-lanes:
-  # Few-shot examples for each lane
-  incident_examples:
-    - "My timesheet totals are not accurate"
-    - "Sick leave balance is wrong for my team"
-  understanding_examples:
-    - "How do I cancel my subscription?"
-    - "Can I set up auto punch-out?"
+Input JSONL fields:
+- `query` (required): User's question
+- `contexts` (required): List of retrieved context strings
+- `generated_answer` (required): Your RAG system's response
 
-# Categories
-categories:
-  - name: BILLING
-    priority: 1
-    keywords: ["cancel", "subscription", "billing", "refund"]
-  - name: LEAVE
-    priority: 2
-    keywords: ["leave", "vacation", "sick", "pto"]
-  - name: TIMESHEET
-    priority: 3
-    keywords: ["hours", "timesheet", "punch", "time tracking"]
+Output JSON fields (additional):
+- `evaluation.scores`: 5-dimension scores
+- `evaluation.overall_score`: Average score
+- `evaluation.bucket`: well_answered, partial, content_gap
+- `lane`: UNDERSTANDING, INCIDENT, SPAM
+- `category`: BILLING, LEAVE, TIMESHEET, etc.
+- `action`: DOC_WRITE, DOC_UPDATE, N/A
+- `target_article`: Suggested article name
 
-# Output
-output:
-  format: ["csv", "markdown"]
-  include_examples: 5  # Number of example queries per category
-```
+## Limitations
 
-## Data Privacy
-
-- All processing is local (your queries never leave your machine)
-- Uses your own OpenAI/Azure API keys
-- No telemetry or tracking
-- Logs stored locally only
-
-## Roadmap
-
-### v0.1 (Current)
-- ✅ Lane classification
-- ✅ RAG evaluation
-- ✅ Gap analysis
-- ✅ CSV/MD output
-
-### v0.2 (Planned)
-- [ ] Support for more LLM providers (Claude, local models)
-- [ ] Custom categorization taxonomy
-- [ ] Integration with Freshdesk/Zendesk APIs
-- [ ] Incident pattern clustering
-
-### v0.3 (Planned)
-- [ ] Trend analysis (compare month-over-month)
-- [ ] Agent integration (auto-suggest doc updates)
-- [ ] Team config analysis (cross-reference with settings)
-
-## Contributing
-
-This project was born from real frustration maintaining docs at [AttendanceBot](https://attendancebot.com). We evaluated 1,100+ support queries manually before building this.
-
-**Contributions welcome:**
-- More lane classification examples
-- Better categorization prompts
-- Additional output formats
-- Case studies from other companies
+- Requires OpenAI API key (LLM-based evaluation)
+- Costs ~$0.01-0.02 per query evaluated
+- "Content gap" classification is conservative (flags when no relevant context found, which could be retrieval failure)
+- Works best with English queries
 
 ## License
 
-MIT License - See [LICENSE](LICENSE)
+MIT
 
-## Acknowledgments
+## Contributing
 
-- Inspired by RAGAS, but frustrated by scores we couldn't act on
-- Built for CS teams who need answers, not benchmarks
-- Thanks to the AttendanceBot team for letting us share real (anonymized) data
-
----
-
-**Stop measuring your RAG. Start fixing it.**
+See CONTRIBUTING.md

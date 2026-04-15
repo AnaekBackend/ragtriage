@@ -1,84 +1,39 @@
-# Contributing to ragtriage
+# Contributing to RAGTriage
 
-Thanks for your interest in contributing! This project was born from real frustration maintaining documentation at AttendanceBot, and we're excited to help other teams solve the same problem.
+## Getting Started
 
-## How to Contribute
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/ragtriage`
+3. Install dependencies: `uv sync`
+4. Create a branch: `git checkout -b feature/my-feature`
 
-### Reporting Issues
+## Development
 
-- Use GitHub Issues
-- Include sample queries (anonymized)
-- Describe what you expected vs what happened
-- Share your category taxonomy if you customized it
-
-### Suggesting Enhancements
-
-- Open an issue first to discuss
-- Focus on actionable output (not just metrics)
-- Consider how CS teams would use it
-
-### Pull Requests
-
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Add tests if applicable
-5. Update documentation
-6. Submit PR
-
-## Development Setup
-
+Run tests:
 ```bash
-git clone https://github.com/yourusername/ragtriage.git
-cd ragtriage
-pip install -r requirements.txt
-pip install -e .
+uv run pytest
 ```
 
-## Areas We Need Help
+Format code:
+```bash
+uv run black src/
+uv run ruff check src/
+```
 
-### 1. More Lane Examples
+## Pull Request Process
 
-The lane classifier (incident vs understanding vs spam) needs more examples for accuracy. If you have support queries that were misclassified, please share (anonymized).
-
-### 2. Category Taxonomies
-
-Our default categories (BILLING, LEAVE, TIMESHEET, etc.) are SaaS-focused. If you work in a different domain, suggest a taxonomy that works for your industry.
-
-### 3. Prompt Improvements
-
-The LLM prompts in `eval.py` and `analyze.py` can always be better. If you find edge cases where classification fails, help us improve the prompts.
-
-### 4. Output Formats
-
-Currently we output CSV and Markdown. Would your team benefit from:
-- Notion integration?
-- Linear/Jira ticket creation?
-- Slack notifications?
-- Something else?
-
-### 5. Case Studies
-
-If you use ragtriage at your company, we'd love a case study (can be anonymized). Real examples help others understand the value.
+1. Ensure tests pass
+2. Update documentation if needed
+3. Create PR with clear description of changes
+4. Link any related issues
 
 ## Code Style
 
-- Black for formatting
-- Type hints encouraged
-- Docstrings for public functions
-
-## Testing
-
-```bash
-pytest tests/
-```
+- Follow PEP 8
+- Use type hints
+- Add docstrings to public functions
+- Keep functions focused and small
 
 ## Questions?
 
-- Open a GitHub Discussion for general questions
-- Open an Issue for bugs
-- Email: your.email@example.com
-
-## Code of Conduct
-
-Be kind, be constructive, focus on helping CS teams.
+Open an issue for discussion before large changes.
