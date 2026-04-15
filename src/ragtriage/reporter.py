@@ -45,6 +45,15 @@ class ReportGenerator:
         # Sort by count
         sorted_articles = sorted(article_actions.items(), key=lambda x: -len(x[1]))
         
+        # Calculate percentages safely
+        understanding_pct = (understanding/total*100) if total > 0 else 0
+        incident_pct = (incident/total*100) if total > 0 else 0
+        spam_pct = (spam/total*100) if total > 0 else 0
+        well_pct = (well_answered/understanding*100) if understanding > 0 else 0
+        partial_pct = (partial/understanding*100) if understanding > 0 else 0
+        write_pct = (doc_write/len(action_items)*100) if len(action_items) > 0 else 0
+        update_pct = (doc_update/len(action_items)*100) if len(action_items) > 0 else 0
+        
         # Build report
         report = f"""# RAGTriage Analysis Report
 
@@ -53,23 +62,23 @@ class ReportGenerator:
 | Metric | Count | Percentage |
 |--------|-------|------------|
 | Total Queries | {total} | 100% |
-| **UNDERSTANDING** | {understanding} | {understanding/total*100:.1f}% |
-| **INCIDENT** | {incident} | {incident/total*100:.1f}% |
-| **SPAM** | {spam} | {spam/total*100:.1f}% |
+| **UNDERSTANDING** | {understanding} | {understanding_pct:.1f}% |
+| **INCIDENT** | {incident} | {incident_pct:.1f}% |
+| **SPAM** | {spam} | {spam_pct:.1f}% |
 
 ### Understanding Queries Breakdown
 
 | Status | Count | Percentage |
 |--------|-------|------------|
-| Well Answered | {well_answered} | {well_answered/understanding*100:.1f}% |
-| Partial Answer | {partial} | {partial/understanding*100:.1f}% |
+| Well Answered | {well_answered} | {well_pct:.1f}% |
+| Partial Answer | {partial} | {partial_pct:.1f}% |
 
 ### Action Items ({len(action_items)} total)
 
 | Action | Count | Percentage |
 |--------|-------|------------|
-| Write New Article | {doc_write} | {doc_write/len(action_items)*100:.1f}% |
-| Update Existing | {doc_update} | {doc_update/len(action_items)*100:.1f}% |
+| Write New Article | {doc_write} | {write_pct:.1f}% |
+| Update Existing | {doc_update} | {update_pct:.1f}% |
 
 ---
 
