@@ -169,7 +169,7 @@ class ClusteringPipeline:
             elif isinstance(obj, np.ndarray):
                 return obj.tolist()
             elif isinstance(obj, dict):
-                return {k: convert_to_native(v) for k, v in obj.items()}
+                return {convert_to_native(k): convert_to_native(v) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [convert_to_native(item) for item in obj]
             return obj
