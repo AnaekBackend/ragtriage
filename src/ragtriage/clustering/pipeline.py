@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class ClusteringPipeline:
     """Complete query clustering pipeline."""
-    
+
     def __init__(
         self,
         embedding_model: str = "all-MiniLM-L6-v2",
@@ -27,7 +27,7 @@ class ClusteringPipeline:
     ):
         """
         Initialize clustering pipeline.
-        
+
         Args:
             embedding_model: Sentence transformer model name
             n_clusters_dims: Dimensions for clustering (UMAP)
@@ -38,7 +38,7 @@ class ClusteringPipeline:
         self.n_clusters_dims = n_clusters_dims
         self.n_viz_dims = n_viz_dims
         self.min_cluster_size = min_cluster_size
-        
+
         # Initialize components
         self.embedder = QueryEmbedder(model_name=embedding_model)
         self.cluster_reducer = DimensionalityReducer(n_components=n_clusters_dims)
@@ -46,92 +46,114 @@ class ClusteringPipeline:
         self.clusterer = QueryClusterer(min_cluster_size=min_cluster_size)
         self.analyzer = ClusterAnalyzer()
         self.visualizer = ClusterVisualizer()
-        
-        # Store intermediate results
-        self.embeddings = None
-        self.embeddings_cluster = None
-        self.embeddings_viz = None
-        self.labels = None
-        self.clustered_queries = None
-        self.cluster_analyses = None
-    
+
     def run(
         self,
         queries: List[dict],
+        evaluated_results: Optional[List[Dict]] = None,
         create_visualization: bool = True,
         output_dir: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Run full clustering pipeline.
-        
+
         Args:
             queries: List of query dicts with 'query' field
+            evaluated_results: Optional evaluation results for quality analysis
             create_visualization: Whether to create 2D plot
             output_dir: Directory to save outputs
-            
+
         Returns:
             Results dict with clusters, analyses, and recommendations
         """
         logger.info(f"Starting clustering pipeline for {len(queries)} queries...")
-        
+
         # Step 1: Embed queries
         logger.info("Step 1: Embedding queries...")
-        self.embeddings = self.embedder.embed_queries(queries)
-        
+        embeddings = self.embedder.embed_queries(queries)
+
         # Step 2: Reduce dimensions for clustering
-        logger.info("Step 2: Reducing dimensions for clustering...")
-        self.embeddings_cluster = self.cluster_reducer.fit_transform(self.embeddings)
-        
+        logger.info("Step 2: Reducing dimensions...")
+        embeddings_cluster = self.cluster_reducer.fit_transform(embeddings)
+
         # Step 3: Cluster
         logger.info("Step 3: Clustering queries...")
-        self.labels = self.clusterer.fit(self.embeddings_cluster)
-        
-        # Step 4: Group queries by cluster
-        self.clustered_queries = self.clusterer.get_cluster_queries(queries)
-        
-        # Step 5: Analyze clusters
-        logger.info("Step 4: Analyzing clusters...")
-        self.cluster_analyses = self.analyzer.analyze_all_clusters(self.clustered_queries)
-        
-        # Step 6: Generate recommendations
-        logger.info("Step 5: Generating recommendations...")
-        recommendations = self.analyzer.generate_recommendations(self.cluster_analyses)
-        
-        # Step 7: Create visualization (optional)
-        viz_path = None
-        if create_visualization:
-            logger.info("Step 6: Creating visualization...")
-            self.embeddings_viz = self.viz_reducer.fit_transform(self.embeddings)
-            
-            query_texts = [q.get("query", "") for q in queries]
-            fig = self.visualizer.create_scatter_plot(
-                self.embeddings_viz,
-                self.labels,
-                query_texts,
-                title=f"Query Clusters (n={len(queries)})"
+        labels = self.clusterer.fit(embeddings_cluster)
+
+        # Step 4: Extract cluster names
+        query_texts = [q.get("query", "") for q in queries]
+        unique_labels = sorted([l for l in set(labels) if l != -1])
+
+        cluster_names = {}
+        for label in unique_labels:
+            indices = np.where(labels == label)[0]
+            cluster_queries = [query_texts[i] for i in indices]
+            cluster_names[label] = self.analyzer.extract_cluster_name(cluster_queries)
+
+        # Step 5: Analyze cluster quality (if evaluation results provided)
+        cluster_quality = {}
+        if evaluated_results:
+            logger.info("Step 4: Analyzing cluster quality...")
+            cluster_quality = self.analyzer.analyze_cluster_quality(
+                query_texts, labels, evaluated_results
             )
-            
-            if output_dir:
-                viz_path = Path(output_dir) / "cluster_visualization.png"
-                self.visualizer.save_plot(fig, str(viz_path))
-        
+
+        # Step 6: Create visualization
+        viz_path = None
+        summary_path = None
+        if create_visualization and output_dir:
+            logger.info("Step 5: Creating visualization...")
+            embeddings_viz = self.viz_reducer.fit_transform(embeddings)
+
+            if cluster_quality:
+                # Quality-colored plot
+                fig = self.visualizer.create_quality_scatter_plot(
+                    embeddings_viz,
+                    labels,
+                    query_texts,
+                    cluster_names,
+                    cluster_quality
+                )
+            else:
+                # Basic plot
+                fig = self.visualizer.create_scatter_plot(
+                    embeddings_viz,
+                    labels,
+                    query_texts
+                )
+
+            viz_path = Path(output_dir) / "cluster_visualization.png"
+            self.visualizer.save_plot(fig, str(viz_path))
+
+            # Generate and save text summary
+            if cluster_quality:
+                summary = self.analyzer.generate_cluster_summary(cluster_quality)
+                summary_path = Path(output_dir) / "cluster_summary.txt"
+                with open(summary_path, 'w') as f:
+                    f.write(summary)
+                logger.info(f"Saved cluster summary to {summary_path}")
+
         # Compile results
+        n_clusters = len([l for l in set(labels) if l != -1])
+        n_noise = sum(1 for l in labels if l == -1)
+
         results = {
             "n_queries": len(queries),
-            "n_clusters": len([c for c in self.cluster_analyses if not c.get("is_noise", False)]),
-            "n_noise": len([c for c in self.cluster_analyses if c.get("is_noise", False)]),
-            "clusters": self.cluster_analyses,
-            "recommendations": recommendations,
-            "visualization_path": str(viz_path) if viz_path else None
+            "n_clusters": n_clusters,
+            "n_noise": n_noise,
+            "cluster_names": cluster_names,
+            "cluster_quality": cluster_quality,
+            "visualization_path": str(viz_path) if viz_path else None,
+            "summary_path": str(summary_path) if summary_path else None
         }
-        
+
         logger.info("Clustering pipeline complete!")
         return results
-    
+
     def save_results(self, results: Dict[str, Any], output_path: str):
         """
         Save clustering results to JSON file.
-        
+
         Args:
             results: Results dict from run()
             output_path: Path to save JSON
@@ -151,9 +173,9 @@ class ClusteringPipeline:
             elif isinstance(obj, list):
                 return [convert_to_native(item) for item in obj]
             return obj
-        
+
         results_native = convert_to_native(results)
-        
+
         with open(output_path, 'w') as f:
             json.dump(results_native, f, indent=2)
         logger.info(f"Saved clustering results to {output_path}")

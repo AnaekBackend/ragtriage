@@ -43,6 +43,7 @@ dev = [
 
 [project.scripts]
 ragtriage-eval = "ragtriage.cli:main"
+ragtriage-cluster = "ragtriage.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/AnaekBackend/ragtriage"

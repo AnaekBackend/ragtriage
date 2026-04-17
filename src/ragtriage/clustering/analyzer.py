@@ -1,170 +1,192 @@
-"""Analyze cluster characteristics and priorities."""
+"""Analyze clusters to extract insights."""
 
-from typing import Dict, List, Any
-from collections import Counter
 import re
-import logging
+from collections import Counter, defaultdict
+from typing import Dict, List, Set, Tuple
 
-logger = logging.getLogger(__name__)
+import numpy as np
 
 
 class ClusterAnalyzer:
-    """Analyzes clusters to extract insights and priorities."""
-    
-    def __init__(self):
-        """Initialize analyzer."""
-        pass
-    
-    def analyze_cluster(
-        self,
-        cluster_id: int,
-        queries: List[dict],
-        top_terms: int = 5
-    ) -> Dict[str, Any]:
+    """Analyzes clusters to extract actionable insights."""
+
+    # Common stop words to exclude from cluster names
+    STOP_WORDS = {
+        "the", "a", "an", "is", "are", "was", "were", "be", "been",
+        "being", "have", "has", "had", "do", "does", "did", "will",
+        "would", "could", "should", "may", "might", "must", "can",
+        "this", "that", "these", "those", "i", "you", "he", "she",
+        "it", "we", "they", "me", "him", "her", "us", "them",
+        "my", "your", "his", "her", "its", "our", "their",
+        "and", "or", "but", "if", "then", "else", "when", "where",
+        "why", "how", "what", "which", "who", "whom", "whose"
+    }
+
+    def extract_cluster_name(self, queries: List[str], top_n: int = 3) -> str:
         """
-        Analyze a single cluster.
-        
+        Extract a descriptive name for a cluster from its queries.
+
         Args:
-            cluster_id: Cluster identifier
-            queries: List of queries in this cluster
-            top_terms: Number of top terms to extract
-            
+            queries: List of queries in the cluster
+            top_n: Number of top terms to include
+
         Returns:
-            Analysis dict with insights
+            Cluster name (e.g., "billing subscription cancel")
         """
-        if not queries:
-            return {"cluster_id": cluster_id, "size": 0}
-        
-        # Extract text
-        texts = [q.get("query", "").lower() for q in queries]
-        
+        # Combine all queries
+        text = " ".join(queries).lower()
+
+        # Extract words (remove punctuation)
+        words = re.findall(r'\b[a-z]+\b', text)
+
+        # Filter out stop words and short words
+        words = [w for w in words if w not in self.STOP_WORDS and len(w) > 2]
+
+        # Count frequencies
+        word_counts = Counter(words)
+
         # Get top terms
-        all_words = []
-        for text in texts:
-            # Simple tokenization (could use better NLP)
-            words = re.findall(r'\b[a-z]{3,}\b', text)
-            # Filter common stop words
-            stop_words = {'how', 'what', 'why', 'when', 'where', 'can', 'the', 'and', 'for', 'are', 'with', 'have', 'from', 'that', 'this', 'but', 'not', 'you', 'all', 'any', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'man', 'new', 'now', 'old', 'see', 'two', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use', 'way', 'she', 'her', 'him', 'his', 'how', 'its', 'may', 'say', 'she', 'too', 'old', 'tell', 'very', 'when', 'come', 'here', 'just', 'like', 'long', 'make', 'many', 'over', 'such', 'take', 'than', 'them', 'well', 'were', 'will', 'would', 'there', 'their', 'what', 'said', 'each', 'which', 'about', 'could', 'other', 'after', 'first', 'never', 'these', 'think', 'where', 'being', 'every', 'great', 'might', 'shall', 'still', 'those', 'while', 'this', 'have', 'from', 'they', 'know', 'want', 'been', 'good', 'much', 'some', 'time', 'very', 'when', 'come', 'here', 'just', 'like', 'long', 'make', 'many', 'over', 'such', 'take', 'than', 'them', 'well', 'were', 'what'}
-            words = [w for w in words if w not in stop_words and len(w) > 3]
-            all_words.extend(words)
-        
-        word_counts = Counter(all_words)
-        top_words = word_counts.most_common(top_terms)
-        
-        # Analyze answer quality
-        total = len(queries)
-        well_answered = sum(1 for q in queries if q.get("evaluation", {}).get("overall_score", 0) >= 4)
-        partial = sum(1 for q in queries if 2 <= q.get("evaluation", {}).get("overall_score", 0) < 4)
-        poor = sum(1 for q in queries if q.get("evaluation", {}).get("overall_score", 0) < 2)
-        
-        # Lane distribution
-        lanes = Counter(q.get("lane", "unknown") for q in queries)
-        
-        # Action items
-        action_counts = Counter(q.get("action", "unknown") for q in queries if q.get("action"))
-        
-        return {
-            "cluster_id": cluster_id,
-            "size": total,
-            "is_noise": cluster_id == -1,
-            "top_terms": [word for word, count in top_words],
-            "sample_queries": texts[:3],  # First 3 as examples
-            "quality_distribution": {
+        top_terms = [term for term, _ in word_counts.most_common(top_n)]
+
+        # Join to form name
+        return " ".join(top_terms) if top_terms else "misc"
+
+    def analyze_cluster_quality(
+        self,
+        queries: List[str],
+        labels: np.ndarray,
+        evaluated_results: List[Dict]
+    ) -> Dict[int, Dict]:
+        """
+        Analyze quality metrics for each cluster.
+
+        Args:
+            queries: List of query texts
+            labels: Cluster labels
+            evaluated_results: Evaluation results for each query
+
+        Returns:
+            Dict mapping cluster_id to quality metrics
+        """
+        cluster_quality = {}
+        unique_labels = set(labels)
+
+        for label in unique_labels:
+            if label == -1:  # Skip noise
+                continue
+
+            # Get indices for this cluster
+            indices = np.where(labels == label)[0]
+
+            # Get queries and results for this cluster
+            cluster_queries = [queries[i] for i in indices]
+            cluster_results = [evaluated_results[i] for i in indices if i < len(evaluated_results)]
+
+            # Calculate metrics
+            total = len(cluster_results)
+            well_answered = sum(1 for r in cluster_results
+                               if r.get("evaluation", {}).get("bucket") == "well_answered")
+            partial = sum(1 for r in cluster_results
+                         if r.get("evaluation", {}).get("bucket") == "partial")
+
+            # Calculate average score
+            scores = [r.get("evaluation", {}).get("overall_score", 0)
+                     for r in cluster_results]
+            avg_score = sum(scores) / len(scores) if scores else 0
+
+            # Extract top issues (queries with partial answers)
+            partial_queries = [r.get("query", "")
+                             for r in cluster_results
+                             if r.get("evaluation", {}).get("bucket") == "partial"]
+
+            # Get recommendations
+            actions = Counter(r.get("action", "UNKNOWN")
+                            for r in cluster_results
+                            if r.get("evaluation", {}).get("bucket") == "partial")
+
+            cluster_quality[int(label)] = {
+                "name": self.extract_cluster_name(cluster_queries),
+                "query_count": len(cluster_queries),
                 "well_answered": well_answered,
-                "partial": partial,
-                "poor": poor,
-                "percent_well": well_answered / total * 100 if total > 0 else 0
-            },
-            "lane_distribution": dict(lanes),
-            "action_distribution": dict(action_counts),
-            "needs_attention": partial > 0 or poor > 0
-        }
-    
-    def analyze_all_clusters(
+                "partial_answers": partial,
+                "quality_pct": (well_answered / total * 100) if total > 0 else 0,
+                "avg_score": avg_score,
+                "top_partial_queries": partial_queries[:3],
+                "recommended_actions": dict(actions.most_common(3))
+            }
+
+        return cluster_quality
+
+    def generate_cluster_summary(
         self,
-        clustered_queries: Dict[int, List[dict]]
-    ) -> List[Dict[str, Any]]:
+        cluster_quality: Dict[int, Dict],
+        sort_by: str = "partial_answers"
+    ) -> str:
         """
-        Analyze all clusters and return sorted by priority.
-        
-        Priority order:
-        1. Clusters with partial answers (need doc updates)
-        2. Clusters with poor answers (need investigation)
-        3. Larger clusters
-        4. Smaller clusters
-        
+        Generate a human-readable summary of clusters.
+
         Args:
-            clustered_queries: Dict mapping cluster_id -> queries
-            
+            cluster_quality: Quality metrics per cluster
+            sort_by: Field to sort by (partial_answers, query_count, quality_pct)
+
         Returns:
-            List of cluster analyses, sorted by priority
+            Formatted summary text
         """
-        analyses = []
-        
-        for cluster_id, queries in clustered_queries.items():
-            analysis = self.analyze_cluster(cluster_id, queries)
-            analyses.append(analysis)
-        
-        # Sort by priority
-        def priority_key(analysis):
-            if analysis.get("is_noise", False):
-                return (3, 0, 0)  # Noise last
-            
-            partial = analysis.get("quality_distribution", {}).get("partial", 0)
-            poor = analysis.get("quality_distribution", {}).get("poor", 0)
-            size = analysis.get("size", 0)
-            
-            # Priority: partial > 0, then poor > 0, then size descending
-            has_issues = 0 if (partial > 0 or poor > 0) else 1
-            issue_count = -(partial + poor)  # Negative for descending
-            
-            return (has_issues, issue_count, -size)
-        
-        analyses.sort(key=priority_key)
-        return analyses
-    
-    def generate_recommendations(
-        self,
-        cluster_analyses: List[Dict[str, Any]]
-    ) -> List[str]:
-        """
-        Generate actionable recommendations from cluster analysis.
-        
-        Args:
-            cluster_analyses: Analyzed clusters
-            
-        Returns:
-            List of recommendation strings
-        """
-        recommendations = []
-        
-        # Identify high-priority clusters
-        problem_clusters = [
-            c for c in cluster_analyses 
-            if c.get("needs_attention") and not c.get("is_noise", False)
+        # Sort clusters by specified field
+        sorted_clusters = sorted(
+            cluster_quality.items(),
+            key=lambda x: x[1].get(sort_by, 0),
+            reverse=True
+        )
+
+        lines = [
+            "=" * 70,
+            "QUERY CLUSTER ANALYSIS",
+            "=" * 70,
+            f"\nFound {len(cluster_quality)} distinct question patterns\n",
         ]
-        
-        if not problem_clusters:
-            recommendations.append("All query clusters are well-answered. No immediate action needed.")
-            return recommendations
-        
-        recommendations.append(f"Found {len(problem_clusters)} cluster(s) with answer quality issues:\n")
-        
-        for cluster in problem_clusters[:5]:  # Top 5
-            cluster_id = cluster["cluster_id"]
-            size = cluster["size"]
-            top_terms = ", ".join(cluster.get("top_terms", [])[:3])
-            partial = cluster.get("quality_distribution", {}).get("partial", 0)
-            poor = cluster.get("quality_distribution", {}).get("poor", 0)
-            
-            rec = f"  Cluster {cluster_id} ({size} queries): {top_terms}\n"
-            rec += f"    - {partial} partial answers, {poor} poor answers\n"
-            
+
+        for cluster_id, metrics in sorted_clusters:
+            name = metrics["name"]
+            count = metrics["query_count"]
+            quality = metrics["quality_pct"]
+            partial = metrics["partial_answers"]
+            avg_score = metrics["avg_score"]
+
+            lines.extend([
+                f"\n{'─' * 70}",
+                f"Cluster {cluster_id}: {name.upper()}",
+                f"{'─' * 70}",
+                f"  Queries: {count}",
+                f"  Quality: {quality:.1f}% well answered",
+                f"  Issues: {partial} partial answers",
+                f"  Avg Score: {avg_score:.1f}/5",
+            ])
+
             if partial > 0:
-                rec += f"    → Review and update existing documentation\n"
-            if poor > 0:
-                rec += f"    → Investigate: potential content gaps or system issues\n"
-            
-            recommendations.append(rec)
-        
-        return recommendations
+                lines.append(f"\n  Top Issues:")
+                for i, query in enumerate(metrics["top_partial_queries"][:3], 1):
+                    short_query = query[:80] + "..." if len(query) > 80 else query
+                    lines.append(f"    {i}. {short_query}")
+
+            if metrics["recommended_actions"]:
+                lines.append(f"\n  Recommended Actions:")
+                for action, count in metrics["recommended_actions"].items():
+                    lines.append(f"    • {action}: {count} queries")
+
+        lines.extend([
+            "\n" + "=" * 70,
+            "PRIORITY RANKING",
+            "=" * 70,
+            "\nFocus on clusters with most partial answers first:\n"
+        ])
+
+        for rank, (cluster_id, metrics) in enumerate(sorted_clusters[:5], 1):
+            name = metrics["name"]
+            partial = metrics["partial_answers"]
+            if partial > 0:
+                lines.append(f"  {rank}. {name} ({partial} issues need attention)")
+
+        lines.append("\n" + "=" * 70)
+
+        return "\n".join(lines)

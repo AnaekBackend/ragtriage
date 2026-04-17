@@ -1,4 +1,4 @@
-"""Query clustering module for ragtriage."""
+"""Query clustering module for discovering patterns."""
 
 from .embedder import QueryEmbedder
 from .reducer import DimensionalityReducer
@@ -9,7 +9,7 @@ from .pipeline import ClusteringPipeline
 
 __all__ = [
     "QueryEmbedder",
-    "DimensionalityReducer", 
+    "DimensionalityReducer",
     "QueryClusterer",
     "ClusterAnalyzer",
     "ClusterVisualizer",

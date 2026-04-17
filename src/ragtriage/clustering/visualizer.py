@@ -1,4 +1,4 @@
-"""Visualize clusters in 2D."""
+"""Visualize clusters in 2D with meaningful labels."""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -10,101 +10,189 @@ logger = logging.getLogger(__name__)
 
 class ClusterVisualizer:
     """Creates 2D visualizations of query clusters."""
-    
-    def __init__(self, figsize: tuple = (12, 8)):
+
+    def __init__(self, figsize: tuple = (14, 10)):
         """
         Initialize visualizer.
-        
+
         Args:
             figsize: Figure size in inches (width, height)
         """
         self.figsize = figsize
-    
+
     def create_scatter_plot(
         self,
         embeddings_2d: np.ndarray,
         labels: np.ndarray,
         queries: List[str],
-        title: str = "Query Clusters",
-        sample_labels: int = 5
+        title: str = "Query Clusters"
+    ):
+        """Create basic scatter plot (when no quality data available)."""
+        fig, ax = plt.subplots(figsize=self.figsize)
+
+        unique_labels = sorted([l for l in set(labels) if l != -1])
+        colors = plt.cm.tab10(np.linspace(0, 1, max(len(unique_labels), 10)))
+
+        for idx, label in enumerate(unique_labels):
+            mask = labels == label
+            color = colors[idx % len(colors)]
+            ax.scatter(
+                embeddings_2d[mask, 0],
+                embeddings_2d[mask, 1],
+                c=[color],
+                alpha=0.6,
+                s=50,
+                label=f"Cluster {label}"
+            )
+
+        # Plot noise
+        noise_mask = labels == -1
+        if np.any(noise_mask):
+            ax.scatter(
+                embeddings_2d[noise_mask, 0],
+                embeddings_2d[noise_mask, 1],
+                c="gray",
+                alpha=0.3,
+                s=20,
+                label="Noise"
+            )
+
+        ax.set_xlabel("UMAP Dimension 1")
+        ax.set_ylabel("UMAP Dimension 2")
+        ax.set_title(title)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        return fig
+
+    def create_quality_scatter_plot(
+        self,
+        embeddings_2d: np.ndarray,
+        labels: np.ndarray,
+        queries: List[str],
+        cluster_names: Dict[int, str],
+        cluster_quality: Dict[int, Dict],
+        title: str = "Query Clusters (colored by quality)"
     ) -> plt.Figure:
         """
-        Create 2D scatter plot of clusters.
-        
+        Create 2D scatter plot colored by answer quality.
+
         Args:
             embeddings_2d: 2D embeddings from UMAP
             labels: Cluster labels from HDBSCAN
             queries: Original query texts
+            cluster_names: Mapping of cluster_id to descriptive name
+            cluster_quality: Quality metrics per cluster
             title: Plot title
-            sample_labels: Number of cluster centers to label
-            
+
         Returns:
             Matplotlib figure
         """
         fig, ax = plt.subplots(figsize=self.figsize)
-        
-        # Get unique labels
-        unique_labels = sorted(set(labels))
-        n_clusters = len([l for l in unique_labels if l != -1])
-        
-        # Color map
-        colors = plt.cm.tab10(np.linspace(0, 1, max(len(unique_labels), 10)))
-        
-        # Plot each cluster
-        for idx, label in enumerate(unique_labels):
+
+        # Get unique labels (excluding noise)
+        unique_labels = sorted([l for l in set(labels) if l != -1])
+
+        # For each cluster, plot points colored by quality
+        for label in unique_labels:
             mask = labels == label
-            color = colors[idx % len(colors)]
-            
-            if label == -1:
-                # Noise points in gray
-                ax.scatter(
-                    embeddings_2d[mask, 0],
-                    embeddings_2d[mask, 1],
-                    c="gray",
-                    alpha=0.3,
-                    s=20,
-                    label="Noise"
-                )
-            else:
-                ax.scatter(
-                    embeddings_2d[mask, 0],
-                    embeddings_2d[mask, 1],
-                    c=[color],
-                    alpha=0.6,
-                    s=50,
-                    label=f"Cluster {label}"
-                )
-                
-                # Add text annotation for cluster center
-                if label < sample_labels:
-                    center_x = embeddings_2d[mask, 0].mean()
-                    center_y = embeddings_2d[mask, 1].mean()
-                    
-                    # Get a sample query for this cluster
-                    sample_idx = np.where(mask)[0][0]
-                    sample_query = queries[sample_idx][:30] + "..." if len(queries[sample_idx]) > 30 else queries[sample_idx]
-                    
-                    ax.annotate(
-                        f"C{label}",
-                        (center_x, center_y),
-                        fontsize=9,
-                        ha="center",
-                        bbox=dict(boxstyle="round,pad=0.3", facecolor=color, alpha=0.7)
-                    )
-        
+            cluster_query_indices = np.where(mask)[0]
+
+            if len(cluster_query_indices) == 0:
+                continue
+
+            # Get quality for each point in cluster
+            colors = []
+            for idx in cluster_query_indices:
+                # Color by quality: red = partial, green = well answered
+                if idx < len(cluster_quality.get(label, {}).get("results", [])):
+                    bucket = cluster_quality[label]["results"][idx].get("evaluation", {}).get("bucket", "partial")
+                    if bucket == "well_answered":
+                        colors.append("#2ecc71")  # Green
+                    else:
+                        colors.append("#e74c3c")  # Red
+                else:
+                    colors.append("#95a5a6")  # Gray (unknown)
+
+            # Plot cluster points
+            ax.scatter(
+                embeddings_2d[mask, 0],
+                embeddings_2d[mask, 1],
+                c=colors,
+                alpha=0.6,
+                s=80,
+                edgecolors="white",
+                linewidth=0.5
+            )
+
+            # Add cluster name annotation
+            center_x = embeddings_2d[mask, 0].mean()
+            center_y = embeddings_2d[mask, 1].mean()
+            name = cluster_names.get(label, f"Cluster {label}")
+            short_name = name[:25] + "..." if len(name) > 25 else name
+
+            # Get cluster stats
+            quality_pct = cluster_quality.get(label, {}).get("quality_pct", 0)
+            query_count = cluster_quality.get(label, {}).get("query_count", 0)
+
+            ax.annotate(
+                f"{short_name}\n({query_count} queries, {quality_pct:.0f}% good)",
+                (center_x, center_y),
+                fontsize=8,
+                ha="center",
+                va="center",
+                bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.8, edgecolor="gray"),
+                fontweight="bold" if quality_pct < 70 else "normal"
+            )
+
+        # Plot noise points in gray
+        noise_mask = labels == -1
+        if np.any(noise_mask):
+            ax.scatter(
+                embeddings_2d[noise_mask, 0],
+                embeddings_2d[noise_mask, 1],
+                c="lightgray",
+                alpha=0.3,
+                s=30,
+                label="Misc/Noise"
+            )
+
+        # Add legend for quality colors
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor="#2ecc71", label="Well Answered"),
+            Patch(facecolor="#e74c3c", label="Partial Answer (needs fix)"),
+            Patch(facecolor="lightgray", label="Misc/Noise")
+        ]
+        ax.legend(handles=legend_elements, loc="upper right", fontsize=9)
+
         ax.set_xlabel("UMAP Dimension 1", fontsize=11)
         ax.set_ylabel("UMAP Dimension 2", fontsize=11)
-        ax.set_title(title, fontsize=14, fontweight="bold")
-        ax.legend(loc="best", fontsize=9)
-        ax.grid(True, alpha=0.3)
-        
+        ax.set_title(title, fontsize=14, fontweight="bold", pad=20)
+        ax.grid(True, alpha=0.3, linestyle="--")
+
+        # Add text box with instructions
+        instructions = (
+            "Red dots = Need documentation work\n"
+            "Green dots = Answered well\n"
+            "Cluster names show top keywords from queries"
+        )
+        ax.text(
+            0.02, 0.98, instructions,
+            transform=ax.transAxes,
+            fontsize=9,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5)
+        )
+
         plt.tight_layout()
         return fig
-    
+
     def save_plot(self, fig: plt.Figure, filepath: str, dpi: int = 150):
         """
         Save plot to file.
-        
+
         Args:
             fig: Matplotlib figure
             filepath: Output path (e.g., "clusters.png")
