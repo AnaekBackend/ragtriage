@@ -105,14 +105,14 @@ class ClusteringPipeline:
             logger.info("Step 5: Creating visualization...")
             embeddings_viz = self.viz_reducer.fit_transform(embeddings)
 
-            if cluster_quality:
-                # Quality-colored plot
+            if evaluated_results and len(evaluated_results) == len(queries):
+                # Quality-colored plot - pass evaluated_results for per-query coloring
                 fig = self.visualizer.create_quality_scatter_plot(
                     embeddings_viz,
                     labels,
                     query_texts,
                     cluster_names,
-                    cluster_quality
+                    evaluated_results
                 )
             else:
                 # Basic plot

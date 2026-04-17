@@ -72,7 +72,7 @@ class ClusterVisualizer:
         labels: np.ndarray,
         queries: List[str],
         cluster_names: Dict[int, str],
-        cluster_quality: Dict[int, Dict],
+        evaluated_results: List[Dict],
         title: str = "Query Clusters (colored by quality)"
     ) -> plt.Figure:
         """
@@ -83,7 +83,7 @@ class ClusterVisualizer:
             labels: Cluster labels from HDBSCAN
             queries: Original query texts
             cluster_names: Mapping of cluster_id to descriptive name
-            cluster_quality: Quality metrics per cluster
+            evaluated_results: List of evaluation results for each query
             title: Plot title
 
         Returns:
@@ -94,7 +94,7 @@ class ClusterVisualizer:
         # Get unique labels (excluding noise)
         unique_labels = sorted([l for l in set(labels) if l != -1])
 
-        # For each cluster, plot points colored by quality
+        # Color each point based on its evaluation
         for label in unique_labels:
             mask = labels == label
             cluster_query_indices = np.where(mask)[0]
@@ -106,8 +106,8 @@ class ClusterVisualizer:
             colors = []
             for idx in cluster_query_indices:
                 # Color by quality: red = partial, green = well answered
-                if idx < len(cluster_quality.get(label, {}).get("results", [])):
-                    bucket = cluster_quality[label]["results"][idx].get("evaluation", {}).get("bucket", "partial")
+                if idx < len(evaluated_results):
+                    bucket = evaluated_results[idx].get("evaluation", {}).get("bucket", "partial")
                     if bucket == "well_answered":
                         colors.append("#2ecc71")  # Green
                     else:
@@ -132,12 +132,18 @@ class ClusterVisualizer:
             name = cluster_names.get(label, f"Cluster {label}")
             short_name = name[:25] + "..." if len(name) > 25 else name
 
-            # Get cluster stats
-            quality_pct = cluster_quality.get(label, {}).get("quality_pct", 0)
-            query_count = cluster_quality.get(label, {}).get("query_count", 0)
+            # Calculate cluster stats from evaluated_results
+            cluster_indices = np.where(mask)[0]
+            total_in_cluster = len(cluster_indices)
+            well_answered_count = sum(
+                1 for idx in cluster_indices
+                if idx < len(evaluated_results)
+                and evaluated_results[idx].get("evaluation", {}).get("bucket") == "well_answered"
+            )
+            quality_pct = (well_answered_count / total_in_cluster * 100) if total_in_cluster > 0 else 0
 
             ax.annotate(
-                f"{short_name}\n({query_count} queries, {quality_pct:.0f}% good)",
+                f"{short_name}\n({total_in_cluster} queries, {quality_pct:.0f}% good)",
                 (center_x, center_y),
                 fontsize=8,
                 ha="center",
