@@ -70,37 +70,10 @@ def run_evaluation(args):
         json.dump(analyzed, f, indent=2)
     print(f"✓ Analysis complete. Results saved to {analyzed_path}")
 
-    # Step 3: Generate reports
-    print("\n=== Step 3: Generating reports ===")
-    reporter = ReportGenerator()
-
-    # Markdown report
-    report = reporter.generate_report(analyzed)
+    # Step 3: Clustering (if requested) - Do this BEFORE report generation
     cluster_results = None
-
-    # Add cluster section if clustering was done
     if args.cluster:
-        cluster_path = output_dir / "clustering_results.json"
-        if cluster_path.exists():
-            with open(cluster_path, 'r') as f:
-                cluster_results = json.load(f)
-            cluster_section = reporter.generate_cluster_section(cluster_results)
-            report += cluster_section
-
-    report_path = output_dir / "report.md"
-    with open(report_path, 'w') as f:
-        f.write(report)
-    print(f"✓ Report saved to {report_path}")
-
-    # CSV
-    df = reporter.generate_csv(analyzed)
-    csv_path = output_dir / "action_items.csv"
-    df.to_csv(csv_path, index=False)
-    print(f"✓ Action items saved to {csv_path}")
-
-    # Step 4: Clustering (if requested)
-    if args.cluster:
-        print("\n=== Step 4: Clustering queries ===")
+        print("\n=== Step 3: Clustering queries ===")
         from .clustering.pipeline import ClusteringPipeline
 
         pipeline = ClusteringPipeline(min_cluster_size=3)
@@ -125,9 +98,29 @@ def run_evaluation(args):
             print(f"  Visualization: {cluster_results['visualization_path']}")
         if cluster_results.get('summary_path'):
             print(f"  Summary: {cluster_results['summary_path']}")
-            # Print the summary
-            with open(cluster_results['summary_path'], 'r') as f:
-                print("\n" + f.read())
+
+    # Step 4: Generate reports
+    print("\n=== Step 4: Generating reports ===")
+    reporter = ReportGenerator()
+
+    # Markdown report
+    report = reporter.generate_report(analyzed)
+
+    # Add cluster section if clustering was done
+    if cluster_results:
+        cluster_section = reporter.generate_cluster_section(cluster_results)
+        report += cluster_section
+
+    report_path = output_dir / "report.md"
+    with open(report_path, 'w') as f:
+        f.write(report)
+    print(f"✓ Report saved to {report_path}")
+
+    # CSV
+    df = reporter.generate_csv(analyzed)
+    csv_path = output_dir / "action_items.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"✓ Action items saved to {csv_path}")
 
     # Summary
     understanding_count = len([r for r in analyzed if r.get("lane") == "UNDERSTANDING"])
