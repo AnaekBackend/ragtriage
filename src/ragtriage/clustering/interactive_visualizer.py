@@ -64,7 +64,7 @@ class InteractiveClusterVisualizer:
         # Color mapping for quality
         color_map = {
             "well_answered": "#2ecc71",  # Green
-            "partial_answer": "#e74c3c",  # Red
+            "partial": "#e74c3c",         # Red (partial answer)
             "content_gap": "#f39c12",     # Orange
             "unknown": "#95a5a6"          # Gray
         }
@@ -87,7 +87,7 @@ class InteractiveClusterVisualizer:
             # Get colors and hover text for each point
             colors = []
             hover_texts = []
-            quality_counts = {"well_answered": 0, "partial_answer": 0, "content_gap": 0}
+            quality_counts = {"well_answered": 0, "partial": 0, "content_gap": 0}
 
             for idx in cluster_indices:
                 if idx < len(evaluated_results):
@@ -116,7 +116,7 @@ class InteractiveClusterVisualizer:
             cluster_stats[label] = {
                 "total": total,
                 "well_answered": well_answered,
-                "partial": quality_counts.get("partial_answer", 0),
+                "partial": quality_counts.get("partial", 0),
                 "quality_pct": quality_pct
             }
 
@@ -237,7 +237,7 @@ class InteractiveClusterVisualizer:
                     yref="paper",
                     text="<b>Quality Legend:</b><br>" +
                          "🟢 Green = Well answered<br>" +
-                         "🔴 Red = Needs work<br>" +
+                         "🔴 Red = Partial answer<br>" +
                          "🟠 Orange = Content gap<br>" +
                          "⚪ Gray = Noise/Uncategorized",
                     showarrow=False,
