@@ -227,28 +227,27 @@ class InteractiveClusterVisualizer:
                 font=dict(size=10)
             ),
             hovermode='closest',
-            plot_bgcolor='white',
-            # Add quality legend
-            annotations=[
-                dict(
-                    x=0.02,
-                    y=0.98,
-                    xref="paper",
-                    yref="paper",
-                    text="<b>Quality Legend:</b><br>" +
-                         "🟢 Green = Well answered<br>" +
-                         "🔴 Red = Partial answer<br>" +
-                         "🟠 Orange = Content gap<br>" +
-                         "⚪ Gray = Noise/Uncategorized",
-                    showarrow=False,
-                    font=dict(size=10),
-                    align="left",
-                    bgcolor="rgba(255,255,255,0.9)",
-                    bordercolor="gray",
-                    borderwidth=1,
-                    borderpad=8
-                )
-            ]
+            plot_bgcolor='white'
+        )
+
+        # Add quality legend annotation (single annotation, added once)
+        fig.add_annotation(
+            x=0.02,
+            y=0.98,
+            xref="paper",
+            yref="paper",
+            text="<b>Quality Legend:</b><br>" +
+                 "🟢 Green = Well answered<br>" +
+                 "🔴 Red = Partial answer<br>" +
+                 "🟠 Orange = Content gap<br>" +
+                 "⚪ Gray = Noise/Uncategorized",
+            showarrow=False,
+            font=dict(size=10),
+            align="left",
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="gray",
+            borderwidth=1,
+            borderpad=8
         )
 
         # Enable zoom, pan, box select
