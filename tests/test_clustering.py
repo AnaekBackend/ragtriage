@@ -10,7 +10,7 @@ from ragtriage.clustering.embedder import QueryEmbedder
 from ragtriage.clustering.reducer import DimensionalityReducer
 from ragtriage.clustering.clusterer import QueryClusterer
 from ragtriage.clustering.analyzer import ClusterAnalyzer
-from ragtriage.clustering.visualizer import ClusterVisualizer
+from ragtriage.clustering.interactive_visualizer import InteractiveClusterVisualizer
 from ragtriage.clustering.pipeline import ClusteringPipeline
 
 
@@ -252,17 +252,18 @@ class TestClusterAnalyzer:
         assert "2 issues need attention" in summary
 
 
-class TestClusterVisualizer:
-    """Test cluster visualization."""
+class TestInteractiveClusterVisualizer:
+    """Test interactive HTML visualization."""
 
     def test_initialization(self):
         """Test visualizer initializes."""
-        viz = ClusterVisualizer(figsize=(10, 6))
-        assert viz.figsize == (10, 6)
+        viz = InteractiveClusterVisualizer(width=1000, height=700)
+        assert viz.width == 1000
+        assert viz.height == 700
 
-    def test_create_quality_scatter_plot(self):
-        """Test creating quality-colored scatter plot."""
-        viz = ClusterVisualizer()
+    def test_create_interactive_plot(self):
+        """Test creating interactive HTML plot."""
+        viz = InteractiveClusterVisualizer()
 
         # Create dummy data
         np.random.seed(42)
@@ -271,42 +272,49 @@ class TestClusterVisualizer:
         queries = [f"query_{i}" for i in range(20)]
 
         cluster_names = {0: "billing cancel", 1: "leave policy"}
-        cluster_quality = {
-            0: {"query_count": 10, "quality_pct": 60.0, "name": "billing"},
-            1: {"query_count": 10, "quality_pct": 90.0, "name": "leave"}
-        }
+        evaluated_results = [
+            {"evaluation": {"bucket": "well_answered", "dimensions": {"overall": 4.5}}}
+            for _ in range(20)
+        ]
 
-        fig = viz.create_quality_scatter_plot(
-            embeddings_2d, labels, queries, cluster_names, cluster_quality
+        html_content = viz.create_interactive_plot(
+            embeddings_2d, labels, queries, cluster_names, evaluated_results
         )
 
-        assert fig is not None
-        # Close figure to free memory
-        import matplotlib.pyplot as plt
-        plt.close(fig)
+        assert html_content is not None
+        assert "<html>" in html_content
+        assert "plotly" in html_content.lower()
+        assert "scatter" in html_content.lower()
 
-    def test_save_plot(self):
-        """Test saving plot to file."""
-        viz = ClusterVisualizer()
+    def test_save_html(self):
+        """Test saving HTML to file."""
+        viz = InteractiveClusterVisualizer()
 
         # Create dummy plot
         embeddings_2d = np.random.randn(10, 2)
         labels = np.array([0] * 5 + [1] * 5)
         queries = [f"query_{i}" for i in range(10)]
         cluster_names = {0: "cluster0", 1: "cluster1"}
-        cluster_quality = {0: {"query_count": 5}, 1: {"query_count": 5}}
+        evaluated_results = [
+            {"evaluation": {"bucket": "well_answered", "dimensions": {"overall": 4.0}}}
+            for _ in range(10)
+        ]
 
-        fig = viz.create_quality_scatter_plot(
-            embeddings_2d, labels, queries, cluster_names, cluster_quality
+        html_content = viz.create_interactive_plot(
+            embeddings_2d, labels, queries, cluster_names, evaluated_results
         )
 
         # Save to temp file
         with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = Path(tmpdir) / "test_clusters.png"
-            viz.save_plot(fig, str(filepath))
+            filepath = Path(tmpdir) / "test_clusters.html"
+            viz.save_html(html_content, str(filepath))
 
             assert filepath.exists()
             assert filepath.stat().st_size > 0
+            # Verify it's valid HTML
+            content = filepath.read_text()
+            assert "<html>" in content
+            assert "</html>" in content
 
 
 class TestClusteringPipeline:

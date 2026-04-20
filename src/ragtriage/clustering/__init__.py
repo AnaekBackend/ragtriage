@@ -4,7 +4,7 @@ from .embedder import QueryEmbedder
 from .reducer import DimensionalityReducer
 from .clusterer import QueryClusterer
 from .analyzer import ClusterAnalyzer
-from .visualizer import ClusterVisualizer
+from .interactive_visualizer import InteractiveClusterVisualizer
 from .pipeline import ClusteringPipeline
 
 __all__ = [
@@ -12,6 +12,6 @@ __all__ = [
     "DimensionalityReducer",
     "QueryClusterer",
     "ClusterAnalyzer",
-    "ClusterVisualizer",
+    "InteractiveClusterVisualizer",
     "ClusteringPipeline",
 ]

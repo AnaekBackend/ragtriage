@@ -10,7 +10,7 @@ from .embedder import QueryEmbedder
 from .reducer import DimensionalityReducer
 from .clusterer import QueryClusterer
 from .analyzer import ClusterAnalyzer
-from .visualizer import ClusterVisualizer
+from .interactive_visualizer import InteractiveClusterVisualizer
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class ClusteringPipeline:
         self.viz_reducer = DimensionalityReducer(n_components=n_viz_dims)
         self.clusterer = QueryClusterer(min_cluster_size=min_cluster_size)
         self.analyzer = ClusterAnalyzer()
-        self.visualizer = ClusterVisualizer()
+        self.visualizer = InteractiveClusterVisualizer()
 
     def run(
         self,
@@ -102,28 +102,32 @@ class ClusteringPipeline:
         viz_path = None
         summary_path = None
         if create_visualization and output_dir:
-            logger.info("Step 5: Creating visualization...")
+            logger.info("Step 5: Creating interactive visualization...")
             embeddings_viz = self.viz_reducer.fit_transform(embeddings)
 
             if evaluated_results and len(evaluated_results) == len(queries):
-                # Quality-colored plot - pass evaluated_results for per-query coloring
-                fig = self.visualizer.create_quality_scatter_plot(
+                # Create interactive HTML plot with quality coloring
+                html_content = self.visualizer.create_interactive_plot(
                     embeddings_viz,
                     labels,
                     query_texts,
                     cluster_names,
-                    evaluated_results
+                    evaluated_results,
+                    title="Query Clusters by Quality (Click legend to filter, hover for details)"
                 )
             else:
-                # Basic plot
-                fig = self.visualizer.create_scatter_plot(
+                # Basic plot without quality data
+                html_content = self.visualizer.create_interactive_plot(
                     embeddings_viz,
                     labels,
-                    query_texts
+                    query_texts,
+                    cluster_names,
+                    [],
+                    title="Query Clusters (Click legend to filter, hover for details)"
                 )
 
-            viz_path = Path(output_dir) / "cluster_visualization.png"
-            self.visualizer.save_plot(fig, str(viz_path))
+            viz_path = Path(output_dir) / "cluster_visualization.html"
+            self.visualizer.save_html(html_content, str(viz_path))
 
             # Generate and save text summary
             if cluster_quality:
