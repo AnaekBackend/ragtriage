@@ -110,6 +110,11 @@ def run_evaluation(args):
     if cluster_results:
         cluster_section = reporter.generate_cluster_section(cluster_results)
         report += cluster_section
+    
+    # Add diagnostics section
+    diagnostics_section = reporter.generate_diagnostics_section(analyzed)
+    if diagnostics_section:
+        report += diagnostics_section
 
     report_path = output_dir / "report.md"
     with open(report_path, 'w') as f:
