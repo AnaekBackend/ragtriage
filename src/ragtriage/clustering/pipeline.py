@@ -23,7 +23,8 @@ class ClusteringPipeline:
         embedding_model: str = "all-MiniLM-L6-v2",
         n_clusters_dims: int = 10,
         n_viz_dims: int = 2,
-        min_cluster_size: int = 3
+        min_cluster_size: int = 3,
+        min_cluster_size_viz: int = 5
     ):
         """
         Initialize clustering pipeline.
@@ -32,12 +33,14 @@ class ClusteringPipeline:
             embedding_model: Sentence transformer model name
             n_clusters_dims: Dimensions for clustering (UMAP)
             n_viz_dims: Dimensions for visualization (UMAP)
-            min_cluster_size: Minimum queries per cluster
+            min_cluster_size: Minimum queries per cluster for HDBSCAN
+            min_cluster_size_viz: Minimum queries to show label in visualization
         """
         self.embedding_model = embedding_model
         self.n_clusters_dims = n_clusters_dims
         self.n_viz_dims = n_viz_dims
         self.min_cluster_size = min_cluster_size
+        self.min_cluster_size_viz = min_cluster_size_viz
 
         # Initialize components
         self.embedder = QueryEmbedder(model_name=embedding_model)
@@ -113,7 +116,8 @@ class ClusteringPipeline:
                     query_texts,
                     cluster_names,
                     evaluated_results,
-                    title="Query Clusters by Quality (Click legend to filter, hover for details)"
+                    title="Query Clusters by Quality (Click legend to filter, hover for details)",
+                    min_cluster_size_viz=self.min_cluster_size_viz
                 )
             else:
                 # Basic plot without quality data
@@ -123,7 +127,8 @@ class ClusteringPipeline:
                     query_texts,
                     cluster_names,
                     [],
-                    title="Query Clusters (Click legend to filter, hover for details)"
+                    title="Query Clusters (Click legend to filter, hover for details)",
+                    min_cluster_size_viz=self.min_cluster_size_viz
                 )
 
             viz_path = Path(output_dir) / "cluster_visualization.html"

@@ -29,7 +29,8 @@ class InteractiveClusterVisualizer:
         queries: List[str],
         cluster_names: Dict[int, str],
         evaluated_results: List[Dict],
-        title: str = "Query Clusters (Interactive)"
+        title: str = "Query Clusters (Interactive)",
+        min_cluster_size_viz: int = 5
     ) -> str:
         """
         Create interactive HTML plot.
@@ -73,6 +74,8 @@ class InteractiveClusterVisualizer:
         cluster_stats = {}
 
         # Add traces for each cluster
+        annotations_placed = []  # Track annotation positions to avoid overlap
+        
         for label in unique_labels:
             mask = labels == label
             cluster_indices = np.where(mask)[0]
@@ -150,13 +153,29 @@ class InteractiveClusterVisualizer:
                 )
             )
 
-            # Add cluster center annotation
-            center_x = x_coords.mean()
-            center_y = y_coords.mean()
+            # Skip annotation for small clusters (below visualization threshold)
+            if total < min_cluster_size_viz:
+                continue
+
+            # Add cluster center annotation with jitter to avoid overlap
+            center_x = float(x_coords.mean())
+            center_y = float(y_coords.mean())
+            
+            # Apply jitter if position is too close to existing annotations
+            jitter_x, jitter_y = 0, 0
+            for existing_x, existing_y in annotations_placed:
+                distance = np.sqrt((center_x - existing_x)**2 + (center_y - existing_y)**2)
+                if distance < 2.0:  # Too close, apply offset
+                    jitter_x += 1.5
+                    jitter_y += 1.0
+            
+            final_x = center_x + jitter_x
+            final_y = center_y + jitter_y
+            annotations_placed.append((final_x, final_y))
 
             fig.add_annotation(
-                x=center_x,
-                y=center_y,
+                x=final_x,
+                y=final_y,
                 text=f"<b>{short_name}</b><br>{total} queries",
                 showarrow=False,
                 font=dict(size=9, color="black"),
@@ -207,16 +226,18 @@ class InteractiveClusterVisualizer:
                 font=dict(size=16)
             ),
             xaxis=dict(
-                title="UMAP Dimension 1",
                 showgrid=True,
                 gridwidth=1,
-                gridcolor='lightgray'
+                gridcolor='lightgray',
+                zeroline=False,
+                showticklabels=False
             ),
             yaxis=dict(
-                title="UMAP Dimension 2",
                 showgrid=True,
                 gridwidth=1,
-                gridcolor='lightgray'
+                gridcolor='lightgray',
+                zeroline=False,
+                showticklabels=False
             ),
             legend=dict(
                 title=dict(text="Clusters (click to toggle)"),
