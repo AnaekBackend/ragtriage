@@ -199,7 +199,7 @@ Focus on these clusters first (most issues to fix):
             eval_data = item.get("evaluation", {})
             scores = eval_data.get("scores", {})
             
-            rows.append({
+            row = {
                 "query": item.get("query", ""),
                 "lane": item.get("lane", ""),
                 "category": item.get("category", ""),
@@ -207,6 +207,7 @@ Focus on these clusters first (most issues to fix):
                 "action": item.get("action", ""),
                 "target_article": item.get("target_article", ""),
                 "gap": item.get("gap", ""),
+                "reason": item.get("reason", ""),
                 "overall_score": eval_data.get("overall_score", 0),
                 "correctness": scores.get("correctness", 0),
                 "completeness": scores.get("completeness", 0),
@@ -215,6 +216,65 @@ Focus on these clusters first (most issues to fix):
                 "conciseness": scores.get("conciseness", 0),
                 "bucket": eval_data.get("bucket", ""),
                 "generated_answer": item.get("generated_answer", "")[:200],
-            })
+            }
+            
+            # Add surface diagnostics if available
+            diagnostics = item.get("surface_diagnostics", {})
+            if diagnostics:
+                coverage = diagnostics.get("coverage", {})
+                relevance = diagnostics.get("context_relevance", {})
+                contradictions = diagnostics.get("contradictions", {})
+                diagnosis = diagnostics.get("overall_diagnosis", {})
+                
+                row["coverage_score"] = coverage.get("score")
+                row["context_relevance"] = relevance.get("avg_relevance")
+                row["contradiction_detected"] = contradictions.get("contradiction_detected")
+                row["diagnostic_diagnosis"] = diagnosis.get("primary_issue")
+            
+            rows.append(row)
         
         return pd.DataFrame(rows)
+    
+    def generate_diagnostics_section(self, analyzed_results: List[Dict]) -> str:
+        """Generate markdown section for surface diagnostics."""
+        # Find action items with diagnostics
+        action_items = [r for r in analyzed_results 
+                       if r.get("action") in ["DOC_WRITE", "DOC_UPDATE"]
+                       and r.get("surface_diagnostics")]
+        
+        if not action_items:
+            return ""
+        
+        section = """
+---
+
+## Surface Diagnostics (Evidence-Based Analysis)
+
+Detailed analysis of partial answers to distinguish retrieval failures from generation issues.
+
+"""
+        
+        for item in action_items:
+            query = item.get("query", "")[:80]
+            diagnostics = item.get("surface_diagnostics", {})
+            
+            coverage = diagnostics.get("coverage", {})
+            relevance = diagnostics.get("context_relevance", {})
+            contradictions = diagnostics.get("contradictions", {})
+            diagnosis = diagnostics.get("overall_diagnosis", {})
+            
+            section += f"""### {query}...
+
+**Action**: {item.get('action', 'N/A')} | **Article**: {item.get('target_article', 'N/A')}
+
+| Signal | Value | Interpretation |
+|--------|-------|----------------|
+| Coverage Score | {coverage.get('score', 'N/A')} | {coverage.get('explanation', 'N/A')[:60]}... |
+| Context Relevance | {relevance.get('avg_relevance', 'N/A')} | {relevance.get('explanation', 'N/A')[:60]}... |
+| Contradiction | {'Yes' if contradictions.get('contradiction_detected') else 'No'} | {contradictions.get('explanation', 'N/A')[:60] if contradictions.get('contradiction_detected') else 'None detected'} |
+
+**Diagnosis**: {diagnosis.get('explanation', 'N/A')}
+
+"""
+        
+        return section

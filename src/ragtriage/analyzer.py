@@ -8,6 +8,8 @@ from typing import Dict, List
 from openai import OpenAI
 from tqdm import tqdm
 
+from .surface_diagnostics import SurfaceDiagnostics
+
 
 LANE_PROMPT = """Classify this support query into one of three lanes:
 
@@ -49,6 +51,9 @@ Based on the retrieved contexts and the answer quality, decide:
 - DOC_UPDATE: Right documents retrieved but answer incomplete/wrong → Update existing docs
 - DOC_WRITE: No relevant documents retrieved OR answer completely missing → Write new article
 
+SURFACE DIAGNOSTICS (evidence-based signals):
+{coverage_info}
+
 Return JSON:
 {
     "action": "DOC_UPDATE" | "DOC_WRITE",
@@ -59,11 +64,14 @@ Return JSON:
 
 
 class QueryAnalyzer:
-    """Analyze queries and generate action items."""
+    """Analyze queries and generate action items with surface diagnostics."""
     
-    def __init__(self, model: str = "gpt-4o-mini"):
+    def __init__(self, model: str = "gpt-4o-mini", use_diagnostics: bool = True):
         self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         self.model = model
+        self.use_diagnostics = use_diagnostics
+        if use_diagnostics:
+            self.diagnostics = SurfaceDiagnostics()
     
     def classify_lane(self, query: str) -> Dict:
         """Classify query into lane (understanding/incident/spam)."""
@@ -97,14 +105,57 @@ class QueryAnalyzer:
         except Exception as e:
             return {"category": "GENERAL", "topic": "unknown", "confidence": "low"}
     
+    def run_diagnostics(
+        self,
+        query: str,
+        contexts: List[str],
+        generated_answer: str
+    ) -> Dict:
+        """Run surface diagnostics if enabled."""
+        if not self.use_diagnostics:
+            return {}
+        
+        try:
+            return self.diagnostics.full_diagnostic(query, contexts, generated_answer)
+        except Exception as e:
+            return {
+                "error": str(e),
+                "coverage": {"score": 0, "explanation": "Diagnostic failed"},
+                "context_relevance": {"avg_relevance": 0, "explanation": "Diagnostic failed"},
+                "contradictions": {"contradiction_detected": False, "explanation": "Diagnostic failed"},
+                "overall_diagnosis": {
+                    "primary_issue": "unknown",
+                    "recommended_action": "DOC_UPDATE",
+                    "explanation": f"Diagnostic error: {str(e)}"
+                }
+            }
+    
     def determine_action(
         self,
         query: str,
         contexts: List[str],
         generated_answer: str,
-        evaluation: Dict
+        evaluation: Dict,
+        diagnostics: Dict = None
     ) -> Dict:
-        """Determine action for partial answer."""
+        """Determine action for partial answer with diagnostic evidence."""
+        
+        # Build diagnostic info string for LLM prompt
+        coverage_info = "No diagnostics available"
+        if diagnostics:
+            coverage = diagnostics.get("coverage", {})
+            relevance = diagnostics.get("context_relevance", {})
+            diagnosis = diagnostics.get("overall_diagnosis", {})
+            contradictions = diagnostics.get("contradictions", {})
+            
+            coverage_info = f"""
+- Coverage Score: {coverage.get('score', 'N/A')} (0-1, higher = more answer supported by contexts)
+- Context Relevance: {relevance.get('avg_relevance', 'N/A')} (0-1, higher = retrieved docs match query)
+- Contradiction Detected: {contradictions.get('contradiction_detected', 'N/A')}
+- Diagnostic Diagnosis: {diagnosis.get('primary_issue', 'N/A')} - {diagnosis.get('explanation', 'N/A')}
+
+Use these signals to make an evidence-based decision."""
+        
         try:
             prompt = f"""Query: {query}
 
@@ -117,16 +168,58 @@ Evaluation: {evaluation.get('why_failed', 'No explanation')}
 
 Determine the action needed."""
 
+            # If we have strong diagnostic signal, use it directly
+            if diagnostics:
+                diagnosis = diagnostics.get("overall_diagnosis", {})
+                signals = diagnosis.get("signals", {})
+                coverage_score = signals.get("coverage_score", 0.5)
+                avg_relevance = signals.get("avg_relevance", 0.5)
+                has_contradiction = signals.get("has_contradiction", False)
+                
+                # Override with diagnostic-based decision when confidence is high
+                if coverage_score < 0.3 and avg_relevance < 0.4:
+                    # Strong signal: retrieval failure
+                    return {
+                        "action": "DOC_WRITE",
+                        "target_article": self._infer_article_name(query),
+                        "gap": f"Low coverage ({coverage_score:.0%}) + low relevance ({avg_relevance:.0%}). Retrieved contexts don't contain answer.",
+                        "reason": f"Evidence-based: Coverage {coverage_score:.0%}, Relevance {avg_relevance:.0%}. No relevant context found.",
+                        "diagnostic_override": True
+                    }
+                elif has_contradiction:
+                    return {
+                        "action": "DOC_UPDATE",
+                        "target_article": self._infer_article_name(query),
+                        "gap": "Answer contradicts retrieved context. Document may be outdated or incorrect.",
+                        "reason": "Contradiction detected between answer and context. Update required.",
+                        "diagnostic_override": True
+                    }
+            
+            # Fall back to LLM-based decision
+            action_prompt = ACTION_PROMPT.format(coverage_info=coverage_info)
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": ACTION_PROMPT},
+                    {"role": "system", "content": action_prompt},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0,
                 response_format={"type": "json_object"}
             )
-            return json.loads(response.choices[0].message.content)
+            result = json.loads(response.choices[0].message.content)
+            
+            # Add diagnostics to result
+            if diagnostics:
+                result["diagnostics"] = {
+                    "coverage_score": diagnostics.get("coverage", {}).get("score"),
+                    "relevance_score": diagnostics.get("context_relevance", {}).get("avg_relevance"),
+                    "contradiction_detected": diagnostics.get("contradictions", {}).get("contradiction_detected"),
+                    "diagnostic_diagnosis": diagnostics.get("overall_diagnosis", {}).get("primary_issue")
+                }
+            
+            return result
+            
         except Exception as e:
             return {
                 "action": "DOC_UPDATE",
@@ -134,6 +227,13 @@ Determine the action needed."""
                 "gap": "Unable to determine",
                 "reason": str(e)
             }
+    
+    def _infer_article_name(self, query: str) -> str:
+        """Infer article name from query."""
+        # Simple heuristic: remove question words, title case
+        cleaned = query.replace("How do I ", "").replace("How to ", "").replace("What is ", "")
+        cleaned = cleaned.replace("?", "").strip()
+        return cleaned.title() if cleaned else "Documentation Update Needed"
     
     def analyze_results(self, evaluated_results: List[Dict]) -> List[Dict]:
         """Analyze all evaluated results and produce action items.
@@ -145,6 +245,7 @@ Determine the action needed."""
             - category (billing/leave/etc)
             - action (doc_update/doc_write)
             - target_article
+            - diagnostics (surface diagnostics results)
         """
         analyzed = []
         
@@ -159,15 +260,23 @@ Determine the action needed."""
             
             # Only categorize understanding queries
             if lane == "UNDERSTANDING" and bucket == "partial":
+                # Run surface diagnostics
+                diagnostics = self.run_diagnostics(
+                    query=query,
+                    contexts=item.get("contexts", []),
+                    generated_answer=item.get("generated_answer", "")
+                )
+                
                 cat_result = self.categorize(query)
                 action_result = self.determine_action(
                     query=query,
                     contexts=item.get("contexts", []),
                     generated_answer=item.get("generated_answer", ""),
-                    evaluation=evaluation
+                    evaluation=evaluation,
+                    diagnostics=diagnostics
                 )
                 
-                analyzed.append({
+                result = {
                     **item,
                     "lane": lane,
                     "category": cat_result.get("category", "GENERAL"),
@@ -176,7 +285,13 @@ Determine the action needed."""
                     "target_article": action_result.get("target_article", "Unknown"),
                     "gap": action_result.get("gap", ""),
                     "reason": action_result.get("reason", "")
-                })
+                }
+                
+                # Add diagnostics if available
+                if diagnostics:
+                    result["surface_diagnostics"] = diagnostics
+                
+                analyzed.append(result)
             else:
                 # Include but mark as non-actionable
                 analyzed.append({
