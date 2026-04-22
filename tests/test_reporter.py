@@ -99,6 +99,6 @@ class TestReportGenerator:
         
         report = generator.generate_report(analyzed_results)
         
-        # Should not repeat the topic header multiple times
-        topic_count = report.count("shared topic")
+        # Should not repeat the topic header multiple times (topic is title-cased in report)
+        topic_count = report.count("Shared Topic")
         assert topic_count == 1, f"Topic should appear once, found {topic_count} times"
