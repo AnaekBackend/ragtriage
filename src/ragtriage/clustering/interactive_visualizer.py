@@ -331,8 +331,9 @@ class InteractiveClusterVisualizer:
         )
 
         for cluster_id, metrics in sorted_clusters:
-            cluster_id_str = str(cluster_id)
-            name = cluster_names.get(cluster_id_str, f"Cluster {cluster_id}")
+            cluster_id_int = int(cluster_id)
+            # Get name from cluster_names if available, otherwise use metrics name
+            name = cluster_names.get(cluster_id_int, metrics.get('name', f"Cluster {cluster_id}"))
             count = metrics.get('query_count', 0)
             partial = metrics.get('partial_answers', 0)
             quality_pct = metrics.get('quality_pct', 0)
