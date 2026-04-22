@@ -55,7 +55,7 @@ class ClusterAnalyzer:
         self,
         queries: List[str],
         labels: np.ndarray,
-        evaluated_results: List[Dict]
+        evaluated_results: List[Dict] = None
     ) -> Dict[int, Dict]:
         """
         Analyze quality metrics for each cluster.
@@ -63,7 +63,7 @@ class ClusterAnalyzer:
         Args:
             queries: List of query texts
             labels: Cluster labels
-            evaluated_results: Evaluation results for each query
+            evaluated_results: Evaluation results for each query (optional)
 
         Returns:
             Dict mapping cluster_id to quality metrics
@@ -78,31 +78,36 @@ class ClusterAnalyzer:
             # Get indices for this cluster
             indices = np.where(labels == label)[0]
 
-            # Get queries and results for this cluster
+            # Get queries for this cluster
             cluster_queries = [queries[i] for i in indices]
-            cluster_results = [evaluated_results[i] for i in indices if i < len(evaluated_results)]
 
             # Calculate metrics
-            total = len(cluster_results)
-            well_answered = sum(1 for r in cluster_results
-                               if r.get("evaluation", {}).get("bucket") == "well_answered")
-            partial = sum(1 for r in cluster_results
-                         if r.get("evaluation", {}).get("bucket") == "partial")
+            total = len(cluster_queries)
 
-            # Calculate average score
-            scores = [r.get("evaluation", {}).get("overall_score", 0)
-                     for r in cluster_results]
-            avg_score = sum(scores) / len(scores) if scores else 0
-
-            # Extract top issues (queries with partial answers)
-            partial_queries = [r.get("query", "")
-                             for r in cluster_results
-                             if r.get("evaluation", {}).get("bucket") == "partial"]
-
-            # Get recommendations
-            actions = Counter(r.get("action", "UNKNOWN")
-                            for r in cluster_results
-                            if r.get("evaluation", {}).get("bucket") == "partial")
+            if evaluated_results and len(evaluated_results) >= len(queries):
+                # Full quality analysis with evaluation data
+                cluster_results = [evaluated_results[i] for i in indices]
+                well_answered = sum(1 for r in cluster_results
+                                   if r.get("evaluation", {}).get("bucket") == "well_answered")
+                partial = sum(1 for r in cluster_results
+                             if r.get("evaluation", {}).get("bucket") == "partial")
+                scores = [r.get("evaluation", {}).get("overall_score", 0)
+                         for r in cluster_results]
+                avg_score = sum(scores) / len(scores) if scores else 0
+                partial_queries = [r.get("query", "")
+                                 for r in cluster_results
+                                 if r.get("evaluation", {}).get("bucket") == "partial"]
+                actions = Counter(r.get("action", "UNKNOWN")
+                                for r in cluster_results
+                                if r.get("evaluation", {}).get("bucket") == "partial")
+                recommended_actions = dict(actions.most_common(3))
+            else:
+                # Basic analysis without evaluation data
+                well_answered = 0
+                partial = 0
+                avg_score = 0
+                partial_queries = []
+                recommended_actions = {}
 
             cluster_quality[int(label)] = {
                 "name": self.extract_cluster_name(cluster_queries),
@@ -112,7 +117,7 @@ class ClusterAnalyzer:
                 "quality_pct": (well_answered / total * 100) if total > 0 else 0,
                 "avg_score": avg_score,
                 "top_partial_queries": partial_queries[:3],
-                "recommended_actions": dict(actions.most_common(3))
+                "recommended_actions": recommended_actions
             }
 
         return cluster_quality

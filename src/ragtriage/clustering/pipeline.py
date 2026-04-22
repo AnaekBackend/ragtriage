@@ -93,13 +93,11 @@ class ClusteringPipeline:
             cluster_queries = [query_texts[i] for i in indices]
             cluster_names[label] = self.analyzer.extract_cluster_name(cluster_queries)
 
-        # Step 5: Analyze cluster quality (if evaluation results provided)
-        cluster_quality = {}
-        if evaluated_results:
-            logger.info("Step 4: Analyzing cluster quality...")
-            cluster_quality = self.analyzer.analyze_cluster_quality(
-                query_texts, labels, evaluated_results
-            )
+        # Step 5: Analyze cluster quality (always generate basic stats, enhanced if evaluation results provided)
+        logger.info("Step 4: Analyzing cluster quality...")
+        cluster_quality = self.analyzer.analyze_cluster_quality(
+            query_texts, labels, evaluated_results
+        )
 
         # Step 6: Create visualization
         viz_path = None
@@ -134,8 +132,20 @@ class ClusteringPipeline:
             viz_path = Path(output_dir) / "cluster_visualization.html"
             self.visualizer.save_html(html_content, str(viz_path))
 
-            # Generate and save text summary
-            if cluster_quality:
+            # Also create treemap visualization (better for many clusters)
+            logger.info("Creating treemap visualization...")
+            treemap_html = self.visualizer.create_treemap(
+                cluster_names,
+                cluster_quality,
+                evaluated_results if evaluated_results else [],
+                title="Query Clusters - Treemap View (Sized by query count)"
+            )
+            treemap_path = Path(output_dir) / "cluster_treemap.html"
+            self.visualizer.save_html(treemap_html, str(treemap_path))
+            logger.info(f"Saved treemap to {treemap_path}")
+
+            # Generate and save text summary (only if we have evaluation data)
+            if evaluated_results:
                 summary = self.analyzer.generate_cluster_summary(cluster_quality)
                 summary_path = Path(output_dir) / "cluster_summary.txt"
                 with open(summary_path, 'w') as f:
@@ -153,6 +163,7 @@ class ClusteringPipeline:
             "cluster_names": cluster_names,
             "cluster_quality": cluster_quality,
             "visualization_path": str(viz_path) if viz_path else None,
+            "treemap_path": str(treemap_path) if 'treemap_path' in locals() and treemap_path else None,
             "summary_path": str(summary_path) if summary_path else None
         }
 

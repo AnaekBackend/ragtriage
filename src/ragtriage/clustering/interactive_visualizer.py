@@ -281,6 +281,133 @@ class InteractiveClusterVisualizer:
         # Return HTML string
         return fig.to_html(include_plotlyjs='cdn', full_html=True)
 
+    def create_treemap(
+        self,
+        cluster_names: Dict[int, str],
+        cluster_quality: Dict,
+        evaluated_results: List[Dict],
+        title: str = "Query Clusters (Treemap View)"
+    ) -> str:
+        """
+        Create interactive treemap visualization.
+
+        Treemaps use space efficiently and eliminate overlap issues.
+        Each cluster is a rectangle sized by query count.
+
+        Args:
+            cluster_names: Mapping of cluster_id to descriptive name
+            cluster_quality: Quality metrics per cluster
+            evaluated_results: List of evaluation results
+            title: Plot title
+
+        Returns:
+            HTML string for the interactive treemap
+        """
+        try:
+            import plotly.graph_objects as go
+        except ImportError:
+            logger.error("Plotly not installed. Run: uv add plotly")
+            raise
+
+        # Build treemap data
+        labels = []
+        parents = []
+        values = []
+        colors = []
+        hover_texts = []
+
+        # Root node
+        labels.append("All Clusters")
+        parents.append("")
+        values.append(0)  # Will be sum of children
+        colors.append("lightgray")
+        hover_texts.append("Root")
+
+        # Sort clusters by size (largest first)
+        sorted_clusters = sorted(
+            cluster_quality.items(),
+            key=lambda x: x[1].get('query_count', 0),
+            reverse=True
+        )
+
+        for cluster_id, metrics in sorted_clusters:
+            cluster_id_str = str(cluster_id)
+            name = cluster_names.get(cluster_id_str, f"Cluster {cluster_id}")
+            count = metrics.get('query_count', 0)
+            partial = metrics.get('partial_answers', 0)
+            quality_pct = metrics.get('quality_pct', 0)
+
+            # Truncate long names
+            short_name = name[:40] + "..." if len(name) > 40 else name
+
+            labels.append(short_name)
+            parents.append("All Clusters")
+            values.append(count)
+
+            # Color based on quality
+            if quality_pct >= 70:
+                colors.append("#2ecc71")  # Green
+            elif quality_pct >= 40:
+                colors.append("#f39c12")  # Orange
+            else:
+                colors.append("#e74c3c")  # Red
+
+            # Hover text
+            hover_text = f"<b>{name}</b><br>"
+            hover_text += f"Queries: {count}<br>"
+            hover_text += f"Partial answers: {partial}<br>"
+            hover_text += f"Quality: {quality_pct:.0f}%"
+            hover_texts.append(hover_text)
+
+        # Create treemap
+        fig = go.Figure(go.Treemap(
+            labels=labels,
+            parents=parents,
+            values=values,
+            text=labels,
+            hovertemplate='%{customdata}<extra></extra>',
+            customdata=hover_texts,
+            marker=dict(
+                colors=colors,
+                line=dict(width=2, color='white')
+            ),
+            textfont=dict(size=11),
+            pathbar=dict(visible=False)
+        ))
+
+        # Update layout
+        fig.update_layout(
+            width=self.width,
+            height=self.height,
+            title=dict(
+                text=title,
+                x=0.5,
+                font=dict(size=16)
+            ),
+            margin=dict(t=50, l=25, r=25, b=25)
+        )
+
+        # Add quality legend annotation
+        fig.add_annotation(
+            x=0.02,
+            y=0.98,
+            xref="paper",
+            yref="paper",
+            text="<b>Quality Legend:</b><br>" +
+                 "🟢 Green = Well answered (≥70%)<br>" +
+                 "🟠 Orange = Mixed (40-69%)<br>" +
+                 "🔴 Red = Needs work (<40%)",
+            showarrow=False,
+            font=dict(size=10),
+            align="left",
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="gray",
+            borderwidth=1,
+            borderpad=8
+        )
+
+        return fig.to_html(include_plotlyjs='cdn', full_html=True)
+
     def save_html(self, html_content: str, filepath: str):
         """
         Save HTML visualization to file.
