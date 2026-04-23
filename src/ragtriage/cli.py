@@ -89,7 +89,8 @@ def run_evaluation(args):
             queries,
             evaluated_results=analyzed,
             create_visualization=True,
-            output_dir=str(output_dir)
+            output_dir=str(output_dir),
+            filter_issues_only=True  # Only cluster queries that need action
         )
 
         # Save results

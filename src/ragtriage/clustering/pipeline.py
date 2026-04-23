@@ -55,7 +55,8 @@ class ClusteringPipeline:
         queries: List[dict],
         evaluated_results: Optional[List[Dict]] = None,
         create_visualization: bool = True,
-        output_dir: Optional[str] = None
+        output_dir: Optional[str] = None,
+        filter_issues_only: bool = True
     ) -> Dict[str, Any]:
         """
         Run full clustering pipeline.
@@ -65,10 +66,28 @@ class ClusteringPipeline:
             evaluated_results: Optional evaluation results for quality analysis
             create_visualization: Whether to create 2D plot
             output_dir: Directory to save outputs
+            filter_issues_only: If True and evaluated_results provided, only cluster 
+                               queries with partial answers or content gaps
 
         Returns:
             Results dict with clusters, analyses, and recommendations
         """
+        # Filter to only problematic queries if evaluation data available
+        if filter_issues_only and evaluated_results:
+            issue_indices = []
+            for i, result in enumerate(evaluated_results):
+                bucket = result.get("evaluation", {}).get("bucket", "")
+                if bucket in ["partial", "content_gap"]:
+                    issue_indices.append(i)
+            
+            if issue_indices:
+                original_count = len(queries)
+                queries = [queries[i] for i in issue_indices]
+                evaluated_results = [evaluated_results[i] for i in issue_indices]
+                logger.info(f"Filtered to {len(queries)} queries with issues (from {original_count} total)")
+            else:
+                logger.info("No queries with issues found, clustering all queries")
+        
         logger.info(f"Starting clustering pipeline for {len(queries)} queries...")
 
         # Step 1: Embed queries

@@ -315,6 +315,9 @@ class InteractiveClusterVisualizer:
         values = []
         colors = []
         hover_texts = []
+        
+        # Store cluster data for drill-down table
+        cluster_queries_data = {}
 
         # Root node
         labels.append("All Clusters")
@@ -337,13 +340,36 @@ class InteractiveClusterVisualizer:
             count = metrics.get('query_count', 0)
             partial = metrics.get('partial_answers', 0)
             quality_pct = metrics.get('quality_pct', 0)
+            
+            # Get queries for this cluster from evaluated_results
+            cluster_queries = []
+            recommended_actions = metrics.get('recommended_actions', {})
+            top_action = list(recommended_actions.keys())[0] if recommended_actions else "UNKNOWN"
+            
+            # Find queries belonging to this cluster
+            if evaluated_results:
+                for result in evaluated_results:
+                    # Match by cluster name or check if result has cluster_id
+                    result_cluster = result.get('cluster_id')
+                    if result_cluster == cluster_id_int or result_cluster == str(cluster_id_int):
+                        query_text = result.get('query', '')
+                        if query_text:
+                            cluster_queries.append(query_text)
 
-            # Truncate long names
-            short_name = name[:40] + "..." if len(name) > 40 else name
+            # Truncate long names for display
+            short_name = name[:35] + "..." if len(name) > 35 else name
 
             labels.append(short_name)
             parents.append("All Clusters")
             values.append(count)
+            
+            # Store data for potential drill-down
+            cluster_queries_data[short_name] = {
+                'full_name': name,
+                'queries': cluster_queries[:5],  # Top 5 queries
+                'action': top_action,
+                'count': count
+            }
 
             # Color based on quality
             if quality_pct >= 70:
@@ -353,11 +379,18 @@ class InteractiveClusterVisualizer:
             else:
                 colors.append("#e74c3c")  # Red
 
-            # Hover text
-            hover_text = f"<b>{name}</b><br>"
-            hover_text += f"Queries: {count}<br>"
-            hover_text += f"Partial answers: {partial}<br>"
-            hover_text += f"Quality: {quality_pct:.0f}%"
+            # Enhanced hover text with actionable info
+            hover_text = f"<b>{name}</b><br><br>"
+            hover_text += f"<b>Action needed:</b> {top_action}<br>"
+            hover_text += f"Queries: {count} | Partial: {partial}<br><br>"
+            
+            # Add sample queries
+            if cluster_queries:
+                hover_text += "<b>Sample queries:</b><br>"
+                for i, q in enumerate(cluster_queries[:3], 1):
+                    short_q = q[:60] + "..." if len(q) > 60 else q
+                    hover_text += f"{i}. {short_q}<br>"
+            
             hover_texts.append(hover_text)
 
         # Create treemap
@@ -365,7 +398,6 @@ class InteractiveClusterVisualizer:
             labels=labels,
             parents=parents,
             values=values,
-            text=labels,
             hovertemplate='%{customdata}<extra></extra>',
             customdata=hover_texts,
             marker=dict(
@@ -373,7 +405,9 @@ class InteractiveClusterVisualizer:
                 line=dict(width=2, color='white')
             ),
             textfont=dict(size=11),
-            pathbar=dict(visible=False)
+            pathbar=dict(visible=False),
+            textposition='middle center',
+            insidetextfont=dict(size=10)
         ))
 
         # Update layout

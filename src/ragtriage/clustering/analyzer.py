@@ -46,14 +46,15 @@ class ClusterAnalyzer:
         sample_queries = queries[:10]
         queries_text = "\n".join(f"- {q}" for q in sample_queries)
         
-        system_prompt = """You analyze user query clusters. Generate a short, clear name (2-5 words) describing what these queries are about.
+        system_prompt = """You name clusters of user support queries. Generate a specific, actionable name (2-4 words) that describes the EXACT topic.
 
 Rules:
-- Use 2-5 words maximum
-- Be specific but concise  
-- Use natural language, not keyword concatenation
-- Good examples: "Slack integration setup", "Cancel subscription", "Time off requests", "Attendance tracking issues"
-- Bad examples: "slack slack bot", "cancel cancel subscription" (repetition), "how do I" (too generic)
+- Use 2-4 words maximum
+- Be SPECIFIC about what users want, not generic
+- NEVER use generic words like: "queries", "tickets", "issues", "problems", "questions", "requests"
+- Focus on the subject matter, not the fact that it's a query
+- Good examples: "Slack integration setup", "Subscription cancellation", "PTO approval workflow", "Fingerprint clock-in", "Timesheet export format"
+- Bad examples: "Ticket queries" (too generic), "Help requests" (obvious), "Support issues" (meaningless)
 
 Respond with ONLY the cluster name, no quotes, no explanation."""
 
