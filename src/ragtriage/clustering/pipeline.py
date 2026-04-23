@@ -56,7 +56,8 @@ class ClusteringPipeline:
         evaluated_results: Optional[List[Dict]] = None,
         create_visualization: bool = True,
         output_dir: Optional[str] = None,
-        filter_issues_only: bool = True
+        filter_issues_only: bool = True,
+        use_actionable_grouping: bool = False
     ) -> Dict[str, Any]:
         """
         Run full clustering pipeline.
@@ -68,10 +69,18 @@ class ClusteringPipeline:
             output_dir: Directory to save outputs
             filter_issues_only: If True and evaluated_results provided, only cluster 
                                queries with partial answers or content gaps
+            use_actionable_grouping: If True, group by Category→Topic→Action instead of semantic clustering
 
         Returns:
             Results dict with clusters, analyses, and recommendations
         """
+        # Option D: Use actionable grouping instead of semantic clustering
+        if use_actionable_grouping and evaluated_results:
+            return self._run_actionable_grouping(
+                queries, evaluated_results, create_visualization, output_dir
+            )
+        
+        # Standard semantic clustering path
         # Filter to only problematic queries if evaluation data available
         if filter_issues_only and evaluated_results:
             issue_indices = []
@@ -121,6 +130,7 @@ class ClusteringPipeline:
         # Step 6: Create visualization
         viz_path = None
         summary_path = None
+        treemap_path = None
         if create_visualization and output_dir:
             logger.info("Step 5: Creating interactive visualization...")
             embeddings_viz = self.viz_reducer.fit_transform(embeddings)
@@ -182,11 +192,138 @@ class ClusteringPipeline:
             "cluster_names": cluster_names,
             "cluster_quality": cluster_quality,
             "visualization_path": str(viz_path) if viz_path else None,
-            "treemap_path": str(treemap_path) if 'treemap_path' in locals() and treemap_path else None,
+            "treemap_path": str(treemap_path) if treemap_path else None,
             "summary_path": str(summary_path) if summary_path else None
         }
 
         logger.info("Clustering pipeline complete!")
+        return results
+
+    def _run_actionable_grouping(
+        self,
+        queries: List[dict],
+        evaluated_results: List[Dict],
+        create_visualization: bool,
+        output_dir: Optional[str]
+    ) -> Dict[str, Any]:
+        """
+        Option D: Group by Category → Topic → Action instead of semantic clustering.
+        
+        This creates actionable groupings that map directly to documentation work.
+        """
+        logger.info("Starting actionable grouping (Option D)...")
+        
+        # Filter to UNDERSTANDING lane + partial answers only
+        actionable_items = []
+        for i, result in enumerate(evaluated_results):
+            lane = result.get("lane", "")
+            action = result.get("action", "")
+            bucket = result.get("evaluation", {}).get("bucket", "")
+            
+            if lane == "UNDERSTANDING" and bucket == "partial" and action in ["DOC_WRITE", "DOC_UPDATE"]:
+                actionable_items.append({
+                    "index": i,
+                    "query": result.get("query", ""),
+                    "category": result.get("category", "GENERAL"),
+                    "topic": result.get("topic", "unknown"),
+                    "action": action,
+                    "target_article": result.get("target_article", "Unknown"),
+                    "gap": result.get("gap", ""),
+                    "evaluation": result.get("evaluation", {})
+                })
+        
+        if not actionable_items:
+            logger.warning("No actionable items found (UNDERSTANDING + partial + DOC_WRITE/DOC_UPDATE)")
+            return {
+                "n_queries": 0,
+                "n_clusters": 0,
+                "n_noise": 0,
+                "cluster_names": {},
+                "cluster_quality": {},
+                "visualization_path": None,
+                "treemap_path": None,
+                "summary_path": None
+            }
+        
+        logger.info(f"Found {len(actionable_items)} actionable items to group")
+        
+        # Group by Category → Topic → Action
+        # Structure: {category: {topic: {action: [items]}}}
+        hierarchy = {}
+        for item in actionable_items:
+            cat = item["category"]
+            topic = item["topic"]
+            action = item["action"]
+            
+            if cat not in hierarchy:
+                hierarchy[cat] = {}
+            if topic not in hierarchy[cat]:
+                hierarchy[cat][topic] = {"DOC_WRITE": [], "DOC_UPDATE": []}
+            hierarchy[cat][topic][action].append(item)
+        
+        # Create cluster-like structure for compatibility
+        cluster_names = {}
+        cluster_quality = {}
+        cluster_id = 0
+        
+        for category, topics in sorted(hierarchy.items()):
+            for topic, actions in sorted(topics.items()):
+                for action, items in actions.items():
+                    if not items:
+                        continue
+                    
+                    # Create cluster name: "Category: Topic (Action)"
+                    cluster_name = f"{category}: {topic}"
+                    cluster_names[cluster_id] = cluster_name
+                    
+                    cluster_quality[cluster_id] = {
+                        "name": cluster_name,
+                        "query_count": len(items),
+                        "well_answered": 0,
+                        "partial_answers": len(items),
+                        "quality_pct": 0,
+                        "avg_score": 0,
+                        "top_partial_queries": [item["query"] for item in items[:3]],
+                        "recommended_actions": {action: len(items)},
+                        "target_article": items[0]["target_article"] if items else "Unknown",
+                        "gap": items[0]["gap"] if items else "",
+                        "category": category,
+                        "topic": topic,
+                        "action": action,
+                        "items": items  # Store all items for drill-down
+                    }
+                    cluster_id += 1
+        
+        logger.info(f"Created {len(cluster_names)} actionable groups")
+        
+        # Create visualizations
+        viz_path = None
+        treemap_path = None
+        
+        if create_visualization and output_dir:
+            # Create actionable treemap (no UMAP scatter for this view)
+            logger.info("Creating actionable treemap visualization...")
+            treemap_html = self.visualizer.create_actionable_treemap(
+                hierarchy,
+                title="Actionable Items by Category → Topic → Action"
+            )
+            treemap_path = Path(output_dir) / "actionable_treemap.html"
+            self.visualizer.save_html(treemap_html, str(treemap_path))
+            logger.info(f"Saved actionable treemap to {treemap_path}")
+        
+        results = {
+            "n_queries": len(actionable_items),
+            "n_clusters": len(cluster_names),
+            "n_noise": 0,
+            "cluster_names": cluster_names,
+            "cluster_quality": cluster_quality,
+            "visualization_path": str(viz_path) if viz_path else None,
+            "treemap_path": str(treemap_path) if treemap_path else None,
+            "summary_path": None,
+            "hierarchy": hierarchy  # Include raw hierarchy for drill-down
+        }
+        
+        logger.info("Actionable grouping complete!")
         return results
 
     def save_results(self, results: Dict[str, Any], output_path: str):

@@ -443,6 +443,160 @@ class InteractiveClusterVisualizer:
 
         return fig.to_html(include_plotlyjs='cdn', full_html=True)
 
+    def create_actionable_treemap(
+        self,
+        hierarchy: Dict,
+        title: str = "Actionable Items by Category → Topic → Action"
+    ) -> str:
+        """
+        Create actionable treemap grouped by Category → Topic → Action.
+        
+        Args:
+            hierarchy: {category: {topic: {action: [items]}}}
+            title: Plot title
+            
+        Returns:
+            HTML string for the actionable treemap
+        """
+        try:
+            import plotly.graph_objects as go
+        except ImportError:
+            logger.error("Plotly not installed. Run: uv add plotly")
+            raise
+        
+        # Build treemap data for hierarchical structure
+        labels = []
+        parents = []
+        values = []
+        colors = []
+        hover_texts = []
+        
+        # Root node
+        labels.append("Actionable Items")
+        parents.append("")
+        values.append(0)
+        colors.append("lightgray")
+        hover_texts.append("All actionable documentation work items")
+        
+        # Color mapping for actions
+        action_colors = {
+            "DOC_WRITE": "#e74c3c",  # Red = needs new doc
+            "DOC_UPDATE": "#f39c12"  # Orange = update existing
+        }
+        
+        total_items = 0
+        
+        for category, topics in sorted(hierarchy.items()):
+            # Category node
+            cat_count = sum(
+                len(items) 
+                for topics_dict in topics.values() 
+                for items in topics_dict.values()
+            )
+            total_items += cat_count
+            
+            cat_label = f"📁 {category}"
+            labels.append(cat_label)
+            parents.append("Actionable Items")
+            values.append(cat_count)
+            colors.append("#3498db")  # Blue for categories
+            hover_texts.append(f"<b>{category}</b><br>{cat_count} items")
+            
+            for topic, actions in sorted(topics.items()):
+                # Topic node
+                topic_count = sum(len(items) for items in actions.values())
+                
+                topic_label = f"📝 {topic[:30]}"  # Truncate long topics
+                labels.append(topic_label)
+                parents.append(cat_label)
+                values.append(topic_count)
+                colors.append("#9b59b6")  # Purple for topics
+                
+                # Get sample queries for hover
+                sample_queries = []
+                for action_items in actions.values():
+                    for item in action_items[:2]:
+                        sample_queries.append(item["query"][:50] + "...")
+                
+                hover_text = f"<b>{category}: {topic}</b><br>{topic_count} items<br><br>"
+                hover_text += "<b>Sample queries:</b><br>" + "<br>".join(sample_queries)
+                hover_texts.append(hover_text)
+                
+                for action, items in actions.items():
+                    if not items:
+                        continue
+                    
+                    # Action/Leaf node
+                    action_label = f"{action} ({len(items)})"
+                    labels.append(action_label)
+                    parents.append(topic_label)
+                    values.append(len(items))
+                    colors.append(action_colors.get(action, "#95a5a6"))
+                    
+                    # Detailed hover for action nodes
+                    hover = f"<b>{action}</b><br>"
+                    hover += f"Category: {category}<br>"
+                    hover += f"Topic: {topic}<br>"
+                    hover += f"Items: {len(items)}<br><br>"
+                    hover += f"<b>Target article:</b> {items[0]['target_article'][:40]}...<br>"
+                    hover += f"<b>Gap:</b> {items[0]['gap'][:60]}...<br><br>"
+                    hover += "<b>Queries:</b><br>"
+                    for i, item in enumerate(items[:5], 1):
+                        short_q = item['query'][:50] + "..." if len(item['query']) > 50 else item['query']
+                        hover += f"{i}. {short_q}<br>"
+                    hover_texts.append(hover)
+        
+        # Create treemap
+        fig = go.Figure(go.Treemap(
+            labels=labels,
+            parents=parents,
+            values=values,
+            hovertemplate='%{customdata}<extra></extra>',
+            customdata=hover_texts,
+            marker=dict(
+                colors=colors,
+                line=dict(width=2, color='white')
+            ),
+            textfont=dict(size=11),
+            pathbar=dict(visible=True),
+            textposition='middle center',
+            insidetextfont=dict(size=10)
+        ))
+        
+        # Update layout
+        fig.update_layout(
+            width=self.width,
+            height=self.height,
+            title=dict(
+                text=f"{title}<br><sub>{total_items} items needing documentation work</sub>",
+                x=0.5,
+                font=dict(size=16)
+            ),
+            margin=dict(t=80, l=25, r=25, b=25)
+        )
+        
+        # Add legend annotation
+        fig.add_annotation(
+            x=0.02,
+            y=0.98,
+            xref="paper",
+            yref="paper",
+            text="<b>Legend:</b><br>" +
+                 "📁 Category<br>" +
+                 "📝 Topic<br>" +
+                 "🔴 DOC_WRITE (new article)<br>" +
+                 "🟠 DOC_UPDATE (existing)",
+            showarrow=False,
+            font=dict(size=10),
+            align="left",
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="gray",
+            borderwidth=1,
+            borderpad=8
+        )
+        
+        return fig.to_html(include_plotlyjs='cdn', full_html=True)
+
     def save_html(self, html_content: str, filepath: str):
         """
         Save HTML visualization to file.
