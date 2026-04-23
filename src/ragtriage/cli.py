@@ -25,10 +25,17 @@ def load_queries(path: str) -> list:
 
 def check_api_key():
     """Check if OpenAI API key is set."""
-    load_dotenv()
+    # Load .env from project root (where pyproject.toml is)
+    project_root = Path(__file__).parent.parent
+    env_file = project_root / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+    else:
+        load_dotenv()  # Fallback to cwd
+    
     if not os.environ.get("OPENAI_API_KEY"):
         print("Error: OPENAI_API_KEY not set in environment")
-        print("Please create a .env file with: OPENAI_API_KEY=sk-...")
+        print("Please create a .env file with: OPENAI_API_KEY=your_key_here")
         sys.exit(1)
 
 
@@ -157,6 +164,14 @@ def run_evaluation(args):
 
 def run_clustering(args):
     """Run only clustering analysis."""
+    # Load .env from project root first
+    project_root = Path(__file__).parent.parent
+    env_file = project_root / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+    else:
+        load_dotenv()
+    
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -209,6 +224,14 @@ def run_clustering(args):
 
 def main():
     """Main entry point."""
+    # Load .env from project root first (before anything else)
+    project_root = Path(__file__).parent.parent
+    env_file = project_root / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+    else:
+        load_dotenv()
+    
     parser = argparse.ArgumentParser(
         description="RAGTriage: Turn RAG failures into a prioritized backlog",
         formatter_class=argparse.RawDescriptionHelpFormatter,
