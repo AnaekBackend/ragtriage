@@ -51,15 +51,19 @@ Based on the retrieved contexts and the answer quality, decide:
 - DOC_UPDATE: Right documents retrieved but answer incomplete/wrong → Update existing docs
 - DOC_WRITE: No relevant documents retrieved OR answer completely missing → Write new article
 
+**IMPORTANT:**
+- For DOC_UPDATE: The target_article MUST be the title of the existing document that needs updating (from Retrieved Contexts)
+- For DOC_WRITE: The target_article should be a descriptive name for the new article to create
+
 SURFACE DIAGNOSTICS (evidence-based signals):
 {coverage_info}
 
 Return JSON:
 {
     "action": "DOC_UPDATE" | "DOC_WRITE",
-    "target_article": "specific article name to update or write",
-    "gap": "what information is missing",
-    "reason": "why this action was chosen"
+    "target_article": "For DOC_UPDATE: exact title of existing doc to update. For DOC_WRITE: descriptive name for new article",
+    "gap": "Specifically what info is missing or wrong in the existing doc (DOC_UPDATE) or what new doc should cover (DOC_WRITE)",
+    "reason": "Brief justification"
 }"""
 
 
