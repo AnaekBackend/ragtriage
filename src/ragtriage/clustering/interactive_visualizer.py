@@ -449,34 +449,34 @@ class InteractiveClusterVisualizer:
         title: str = "Actionable Items by Category → Topic → Action"
     ) -> str:
         """
-        Create actionable treemap grouped by Category → Topic → Action.
+        Create actionable treemap with click-to-view details panel.
+        
+        Two-panel layout: treemap on left (65%), details panel on right (35%).
+        Click any leaf tile to see full details persistently.
         
         Args:
             hierarchy: {category: {topic: {action: [items]}}}
             title: Plot title
             
         Returns:
-            HTML string for the actionable treemap
+            HTML string for the actionable treemap with details panel
         """
         try:
             import plotly.graph_objects as go
+            import json
         except ImportError:
             logger.error("Plotly not installed. Run: uv add plotly")
             raise
         
-        # Build treemap data for hierarchical structure
+        # Build treemap data and collect item details
         labels = []
         parents = []
         values = []
         colors = []
-        hover_texts = []
+        ids = []  # Unique IDs for each node
         
-        # Root node
-        labels.append("Actionable Items")
-        parents.append("")
-        values.append(0)
-        colors.append("lightgray")
-        hover_texts.append("All actionable documentation work items")
+        # Store all item data for JS access
+        item_data = {}  # id -> {category, topic, action, items}
         
         # Color mapping for actions
         action_colors = {
@@ -485,6 +485,15 @@ class InteractiveClusterVisualizer:
         }
         
         total_items = 0
+        node_id = 0
+        
+        # Root node
+        labels.append("Actionable Items")
+        parents.append("")
+        values.append(0)
+        colors.append("lightgray")
+        ids.append("root")
+        node_id += 1
         
         for category, topics in sorted(hierarchy.items()):
             # Category node
@@ -495,64 +504,57 @@ class InteractiveClusterVisualizer:
             )
             total_items += cat_count
             
+            cat_id = f"cat_{node_id}"
             cat_label = f"📁 {category}"
             labels.append(cat_label)
             parents.append("Actionable Items")
             values.append(cat_count)
             colors.append("#3498db")  # Blue for categories
-            hover_texts.append(f"<b>{category}</b><br>{cat_count} items")
+            ids.append(cat_id)
+            node_id += 1
             
             for topic, actions in sorted(topics.items()):
                 # Topic node
                 topic_count = sum(len(items) for items in actions.values())
                 
-                topic_label = f"📝 {topic[:30]}"  # Truncate long topics
+                topic_id = f"topic_{node_id}"
+                topic_label = f"📝 {topic[:30]}"
                 labels.append(topic_label)
                 parents.append(cat_label)
                 values.append(topic_count)
                 colors.append("#9b59b6")  # Purple for topics
-                
-                # Get sample queries for hover
-                sample_queries = []
-                for action_items in actions.values():
-                    for item in action_items[:2]:
-                        sample_queries.append(item["query"][:50] + "...")
-                
-                hover_text = f"<b>{category}: {topic}</b><br>{topic_count} items<br><br>"
-                hover_text += "<b>Sample queries:</b><br>" + "<br>".join(sample_queries)
-                hover_texts.append(hover_text)
+                ids.append(topic_id)
+                node_id += 1
                 
                 for action, items in actions.items():
                     if not items:
                         continue
                     
                     # Action/Leaf node
+                    action_id = f"action_{node_id}"
                     action_label = f"{action} ({len(items)})"
                     labels.append(action_label)
                     parents.append(topic_label)
                     values.append(len(items))
                     colors.append(action_colors.get(action, "#95a5a6"))
+                    ids.append(action_id)
                     
-                    # Detailed hover for action nodes
-                    hover = f"<b>{action}</b><br>"
-                    hover += f"Category: {category}<br>"
-                    hover += f"Topic: {topic}<br>"
-                    hover += f"Items: {len(items)}<br><br>"
-                    hover += f"<b>Target article:</b> {items[0]['target_article'][:40]}...<br>"
-                    hover += f"<b>Gap:</b> {items[0]['gap'][:60]}...<br><br>"
-                    hover += "<b>Queries:</b><br>"
-                    for i, item in enumerate(items[:5], 1):
-                        short_q = item['query'][:50] + "..." if len(item['query']) > 50 else item['query']
-                        hover += f"{i}. {short_q}<br>"
-                    hover_texts.append(hover)
+                    # Store full item data for this node
+                    item_data[action_id] = {
+                        "category": category,
+                        "topic": topic,
+                        "action": action,
+                        "count": len(items),
+                        "items": items
+                    }
+                    node_id += 1
         
         # Create treemap
         fig = go.Figure(go.Treemap(
             labels=labels,
             parents=parents,
             values=values,
-            hovertemplate='%{customdata}<extra></extra>',
-            customdata=hover_texts,
+            ids=ids,
             marker=dict(
                 colors=colors,
                 line=dict(width=2, color='white')
@@ -563,10 +565,10 @@ class InteractiveClusterVisualizer:
             insidetextfont=dict(size=10)
         ))
         
-        # Update layout
+        # Update layout for left panel
         fig.update_layout(
-            width=self.width,
-            height=self.height,
+            width=900,
+            height=700,
             title=dict(
                 text=f"{title}<br><sub>{total_items} items needing documentation work</sub>",
                 x=0.5,
@@ -575,27 +577,265 @@ class InteractiveClusterVisualizer:
             margin=dict(t=80, l=25, r=25, b=25)
         )
         
-        # Add legend annotation
-        fig.add_annotation(
-            x=0.02,
-            y=0.98,
-            xref="paper",
-            yref="paper",
-            text="<b>Legend:</b><br>" +
-                 "📁 Category<br>" +
-                 "📝 Topic<br>" +
-                 "🔴 DOC_WRITE (new article)<br>" +
-                 "🟠 DOC_UPDATE (existing)",
-            showarrow=False,
-            font=dict(size=10),
-            align="left",
-            bgcolor="rgba(255,255,255,0.9)",
-            bordercolor="gray",
-            borderwidth=1,
-            borderpad=8
-        )
+        # Get treemap HTML div
+        treemap_div = fig.to_html(include_plotlyjs='cdn', full_html=False, div_id="treemap")
         
-        return fig.to_html(include_plotlyjs='cdn', full_html=True)
+        # Serialize item data for JavaScript
+        item_data_json = json.dumps(item_data)
+        
+        # Create full HTML with two-panel layout
+        html_template = f'''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{title}</title>
+    <style>
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            height: 100vh;
+            overflow: hidden;
+        }}
+        .header {{
+            background: #2c3e50;
+            color: white;
+            padding: 15px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .header h1 {{
+            font-size: 18px;
+            font-weight: 500;
+        }}
+        .header .count {{
+            background: rgba(255,255,255,0.2);
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 14px;
+        }}
+        .container {{
+            display: flex;
+            height: calc(100vh - 60px);
+        }}
+        .treemap-panel {{
+            flex: 0 0 65%;
+            background: white;
+            padding: 15px;
+            overflow: auto;
+        }}
+        .details-panel {{
+            flex: 0 0 35%;
+            background: #fafafa;
+            border-left: 1px solid #ddd;
+            padding: 20px;
+            overflow-y: auto;
+        }}
+        .details-panel h2 {{
+            font-size: 14px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #ddd;
+        }}
+        .empty-state {{
+            color: #999;
+            font-style: italic;
+            text-align: center;
+            padding: 40px 20px;
+        }}
+        .item-card {{
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 4px solid #ddd;
+        }}
+        .item-card.doc-write {{ border-left-color: #e74c3c; }}
+        .item-card.doc-update {{ border-left-color: #f39c12; }}
+        .item-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }}
+        .item-number {{
+            background: #2c3e50;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }}
+        .item-action {{
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 3px;
+            text-transform: uppercase;
+        }}
+        .item-action.doc-write {{ background: #fee; color: #c0392b; }}
+        .item-action.doc-update {{ background: #fff3e0; color: #e65100; }}
+        .item-query {{
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }}
+        .item-meta {{
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+        }}
+        .item-meta strong {{
+            color: #333;
+        }}
+        .item-gap {{
+            font-size: 12px;
+            color: #555;
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            line-height: 1.5;
+        }}
+        .breadcrumb {{
+            background: #e8f4f8;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }}
+        .breadcrumb span {{
+            color: #666;
+        }}
+        .breadcrumb strong {{
+            color: #2c3e50;
+        }}
+        .legend {{
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+        }}
+        .legend-item {{
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }}
+        .legend-dot {{
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📋 {title}</h1>
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: #e74c3c;"></div>
+                    <span>DOC_WRITE (new article)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: #f39c12;"></div>
+                    <span>DOC_UPDATE (existing)</span>
+                </div>
+            </div>
+            <div class="count">{total_items} items</div>
+        </div>
+    </div>
+    <div class="container">
+        <div class="treemap-panel">
+            {treemap_div}
+        </div>
+        <div class="details-panel" id="detailsPanel">
+            <h2>Item Details</h2>
+            <div class="empty-state">
+                👆 Click on any DOC_WRITE or DOC_UPDATE tile in the treemap to view details
+            </div>
+        </div>
+    </div>
+    <script>
+        const itemData = {item_data_json};
+        
+        document.addEventListener('DOMContentLoaded', function() {{
+            const treemapElement = document.getElementById('treemap');
+            
+            // Wait for Plotly to render
+            setTimeout(function() {{
+                const treemap = document.querySelector('.treemap-panel .js-plotly-plot');
+                if (treemap) {{
+                    treemap.on('plotly_click', function(data) {{
+                        const point = data.points[0];
+                        const nodeId = point.id;
+                        
+                        if (itemData[nodeId]) {{
+                            showDetails(itemData[nodeId]);
+                        }}
+                    }});
+                }}
+            }}, 500);
+        }});
+        
+        function showDetails(data) {{
+            const panel = document.getElementById('detailsPanel');
+            
+            let itemsHtml = '';
+            data.items.forEach((item, idx) => {{
+                const actionClass = data.action === 'DOC_WRITE' ? 'doc-write' : 'doc-update';
+                itemsHtml += `
+                    <div class="item-card ${{actionClass}}">
+                        <div class="item-header">
+                            <div class="item-number">${{idx + 1}}</div>
+                            <div class="item-action ${{actionClass}}">${{data.action}}</div>
+                        </div>
+                        <div class="item-query">${{escapeHtml(item.query)}}</div>
+                        <div class="item-meta">
+                            <strong>Target:</strong> ${{item.target_article || 'N/A'}}
+                        </div>
+                        <div class="item-gap">
+                            <strong>Gap:</strong> ${{escapeHtml(item.gap)}}
+                        </div>
+                    </div>
+                `;
+            }});
+            
+            panel.innerHTML = `
+                <h2>Item Details</h2>
+                <div class="breadcrumb">
+                    <strong>${{data.category}}</strong> <span>›</span> 
+                    <strong>${{data.topic}}</strong> <span>›</span> 
+                    <strong>${{data.action}}</strong>
+                    <span style="float: right; color: #999;">${{data.count}} item${{data.count > 1 ? 's' : ''}}</span>
+                </div>
+                ${{itemsHtml}}
+            `;
+        }}
+        
+        function escapeHtml(text) {{
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }}
+    </script>
+</body>
+</html>'''
+        
+        return html_template
 
     def save_html(self, html_content: str, filepath: str):
         """
