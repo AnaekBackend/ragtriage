@@ -209,6 +209,25 @@ Determine the action needed."""
             )
             result = json.loads(response.choices[0].message.content)
             
+            # Post-process: ensure we always have meaningful values
+            query_text = query[:100]  # First 100 chars of query
+            
+            # Fix empty/weak target_article
+            if not result.get("target_article") or result.get("target_article") in ["Unknown", "N/A", "", " "]:
+                result["target_article"] = self._infer_article_name(query)
+            
+            # Fix empty/weak gap description  
+            if not result.get("gap") or result.get("gap") in ["Unable to determine", "N/A", "", " "]:
+                bucket = item.get("evaluation", {}).get("bucket", "partial")
+                why_failed = item.get("evaluation", {}).get("why_failed", "")
+                
+                if bucket == "partial":
+                    result["gap"] = f"Partial answer: {why_failed[:100]}" if why_failed else "Answer needs expansion with more details"
+                elif bucket == "incorrect":
+                    result["gap"] = f"Incorrect answer: {why_failed[:100]}" if why_failed else "Answer contains errors or contradicts documentation"
+                else:
+                    result["gap"] = "Documentation gap identified - review needed"
+            
             # Add diagnostics to result
             if diagnostics:
                 result["diagnostics"] = {
@@ -221,18 +240,39 @@ Determine the action needed."""
             return result
             
         except Exception as e:
+            # Even on error, provide meaningful fallback values
+            bucket = item.get("evaluation", {}).get("bucket", "partial")
+            why_failed = item.get("evaluation", {}).get("why_failed", "")
+            
             return {
                 "action": "DOC_UPDATE",
-                "target_article": "Unknown",
-                "gap": "Unable to determine",
+                "target_article": self._infer_article_name(query),
+                "gap": f"Analysis issue ({str(e)[:50]}), but {bucket} answer detected: {why_failed[:80]}",
                 "reason": str(e)
             }
     
     def _infer_article_name(self, query: str) -> str:
-        """Infer article name from query."""
-        # Simple heuristic: remove question words, title case
-        cleaned = query.replace("How do I ", "").replace("How to ", "").replace("What is ", "")
+        """Infer article name from query with improved heuristics."""
+        # Remove common question prefixes
+        cleaned = query
+        prefixes = [
+            "How do I ", "How to ", "What is ", "How can I ", "How should I ",
+            "Can I ", "How does ", "Where can I ", "Where do I ", "When should I ",
+            "How to:", "I need to ", "I want to ", "Help with ", "Guide for "
+        ]
+        for prefix in prefixes:
+            if cleaned.lower().startswith(prefix.lower()):
+                cleaned = cleaned[len(prefix):]
+                break
+        
+        # Remove question marks and extra whitespace
         cleaned = cleaned.replace("?", "").strip()
+        
+        # If very short or empty, use the full query
+        if len(cleaned) < 5:
+            cleaned = query.replace("?", "").strip()
+        
+        # Title case for readability
         return cleaned.title() if cleaned else "Documentation Update Needed"
     
     def analyze_results(self, evaluated_results: List[Dict]) -> List[Dict]:

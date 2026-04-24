@@ -827,7 +827,7 @@ class InteractiveClusterVisualizer:
                         </div>
                         <div class="item-query">${{escapeHtml(item.query)}}</div>
                         <div class="item-meta">
-                            <strong>Target:</strong> ${{item.target_article || 'N/A'}}
+                            <strong>Target:</strong> ${{(item.target_article && item.target_article !== 'N/A') ? item.target_article : 'Not specified'}}
                         </div>
                         <div class="item-gap">
                             <strong>Gap:</strong> ${{escapeHtml(item.gap)}}
