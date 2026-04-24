@@ -487,12 +487,17 @@ class InteractiveClusterVisualizer:
         total_items = 0
         node_id = 0
         
-        # Root node
+        # Track parent IDs (not labels) for proper hierarchy
+        root_id = "root"
+        cat_ids = {}  # category -> cat_id
+        topic_ids = {}  # (category, topic) -> topic_id
+        
+        # Root node (value will be set after counting all items)
         labels.append("Actionable Items")
         parents.append("")
-        values.append(0)
+        values.append(0)  # Placeholder, will update later
         colors.append("lightgray")
-        ids.append("root")
+        ids.append(root_id)
         node_id += 1
         
         for category, topics in sorted(hierarchy.items()):
@@ -505,9 +510,10 @@ class InteractiveClusterVisualizer:
             total_items += cat_count
             
             cat_id = f"cat_{node_id}"
+            cat_ids[category] = cat_id
             cat_label = f"📁 {category}"
             labels.append(cat_label)
-            parents.append("Actionable Items")
+            parents.append(root_id)  # Use ID, not label
             values.append(cat_count)
             colors.append("#3498db")  # Blue for categories
             ids.append(cat_id)
@@ -518,9 +524,10 @@ class InteractiveClusterVisualizer:
                 topic_count = sum(len(items) for items in actions.values())
                 
                 topic_id = f"topic_{node_id}"
+                topic_ids[(category, topic)] = topic_id
                 topic_label = f"📝 {topic[:30]}"
                 labels.append(topic_label)
-                parents.append(cat_label)
+                parents.append(cat_id)  # Use ID, not label
                 values.append(topic_count)
                 colors.append("#9b59b6")  # Purple for topics
                 ids.append(topic_id)
@@ -534,7 +541,7 @@ class InteractiveClusterVisualizer:
                     action_id = f"action_{node_id}"
                     action_label = f"{action} ({len(items)})"
                     labels.append(action_label)
-                    parents.append(topic_label)
+                    parents.append(topic_id)  # Use ID, not label
                     values.append(len(items))
                     colors.append(action_colors.get(action, "#95a5a6"))
                     ids.append(action_id)
@@ -549,12 +556,16 @@ class InteractiveClusterVisualizer:
                     }
                     node_id += 1
         
+        # Update root value to total
+        values[0] = total_items
+        
         # Create treemap
         fig = go.Figure(go.Treemap(
             labels=labels,
             parents=parents,
             values=values,
             ids=ids,
+            branchvalues='total',  # Use total values for proper sizing
             marker=dict(
                 colors=colors,
                 line=dict(width=2, color='white')
@@ -774,20 +785,32 @@ class InteractiveClusterVisualizer:
         document.addEventListener('DOMContentLoaded', function() {{
             const treemapElement = document.getElementById('treemap');
             
-            // Wait for Plotly to render
-            setTimeout(function() {{
-                const treemap = document.querySelector('.treemap-panel .js-plotly-plot');
-                if (treemap) {{
-                    treemap.on('plotly_click', function(data) {{
-                        const point = data.points[0];
-                        const nodeId = point.id;
-                        
-                        if (itemData[nodeId]) {{
-                            showDetails(itemData[nodeId]);
+            // Wait for Plotly to render then attach click handler
+            function attachClickHandler() {{
+                if (typeof Plotly !== 'undefined' && treemapElement) {{
+                    console.log('Attaching plotly_click handler');
+                    treemapElement.on('plotly_click', function(data) {{
+                        console.log('Plotly click received:', data);
+                        if (data.points && data.points.length > 0) {{
+                            const point = data.points[0];
+                            const nodeId = point.id;
+                            console.log('Clicked node:', nodeId);
+                            
+                            if (itemData[nodeId]) {{
+                                showDetails(itemData[nodeId]);
+                            }} else {{
+                                console.log('No data found for node:', nodeId);
+                            }}
                         }}
                     }});
+                }} else {{
+                    console.log('Plotly not ready, retrying...');
+                    setTimeout(attachClickHandler, 200);
                 }}
-            }}, 500);
+            }}
+            
+            // Start trying after a short delay
+            setTimeout(attachClickHandler, 300);
         }});
         
         function showDetails(data) {{
