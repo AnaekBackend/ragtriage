@@ -59,12 +59,12 @@ SURFACE DIAGNOSTICS (evidence-based signals):
 {coverage_info}
 
 Return JSON:
-{
+{{
     "action": "DOC_UPDATE" | "DOC_WRITE",
     "target_article": "For DOC_UPDATE: exact title of existing doc to update. For DOC_WRITE: descriptive name for new article",
     "gap": "Specifically what info is missing or wrong in the existing doc (DOC_UPDATE) or what new doc should cover (DOC_WRITE)",
     "reason": "Brief justification"
-}"""
+}}"""
 
 
 class QueryAnalyzer:
@@ -220,10 +220,10 @@ Determine the action needed."""
             if not result.get("target_article") or result.get("target_article") in ["Unknown", "N/A", "", " "]:
                 result["target_article"] = self._infer_article_name(query)
             
-            # Fix empty/weak gap description  
+            # Fix empty/weak gap description
             if not result.get("gap") or result.get("gap") in ["Unable to determine", "N/A", "", " "]:
-                bucket = item.get("evaluation", {}).get("bucket", "partial")
-                why_failed = item.get("evaluation", {}).get("why_failed", "")
+                bucket = evaluation.get("bucket", "partial")
+                why_failed = evaluation.get("why_failed", "")
                 
                 if bucket == "partial":
                     result["gap"] = f"Partial answer: {why_failed[:100]}" if why_failed else "Answer needs expansion with more details"
@@ -245,8 +245,8 @@ Determine the action needed."""
             
         except Exception as e:
             # Even on error, provide meaningful fallback values
-            bucket = item.get("evaluation", {}).get("bucket", "partial")
-            why_failed = item.get("evaluation", {}).get("why_failed", "")
+            bucket = evaluation.get("bucket", "partial")
+            why_failed = evaluation.get("why_failed", "")
             
             return {
                 "action": "DOC_UPDATE",

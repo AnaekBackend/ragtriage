@@ -65,27 +65,34 @@ def run_evaluation(args):
     eval_path = output_dir / "evaluation_results.json"
     analyzed_path = output_dir / "analyzed_results.json"
     
-    if eval_path.exists() and analyzed_path.exists() and not args.refresh:
-        print(f"\n⚡ Found existing evaluation results")
+    # Step 1: Evaluate (skip if exists and not refreshing)
+    if eval_path.exists() and not args.refresh:
+        print(f"\n⚡ Found existing evaluation results: {eval_path}")
         print(f"   Use --refresh to re-evaluate all queries")
         print(f"   Loading cached results...")
         
         with open(eval_path, 'r') as f:
             evaluated = json.load(f)
-        with open(analyzed_path, 'r') as f:
-            analyzed = json.load(f)
         print(f"✓ Loaded {len(evaluated)} evaluated queries")
     else:
         if args.refresh and eval_path.exists():
             print(f"\n🔄 Refresh mode: Re-evaluating all queries")
         
-        # Step 1: Evaluate
         print("\n=== Step 1: Evaluating RAG answers ===")
         evaluator = RAGEvaluator(model=args.model)
         evaluated = evaluator.evaluate_dataset(queries, str(eval_path))
         print(f"✓ Evaluation complete. Results saved to {eval_path}")
 
-        # Step 2: Analyze
+    # Step 2: Analyze (skip if exists and not refreshing)
+    if analyzed_path.exists() and not args.refresh:
+        print(f"\n⚡ Found existing analysis results: {analyzed_path}")
+        print(f"   Use --refresh to re-analyze all queries")
+        print(f"   Loading cached results...")
+        
+        with open(analyzed_path, 'r') as f:
+            analyzed = json.load(f)
+        print(f"✓ Loaded {len(analyzed)} analyzed queries")
+    else:
         print("\n=== Step 2: Analyzing queries and generating action items ===")
         analyzer = QueryAnalyzer(model=args.model)
         analyzed = analyzer.analyze_results(evaluated)
