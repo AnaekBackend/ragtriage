@@ -1,61 +1,120 @@
 """Analyze clusters to extract insights."""
 
+import json
+import logging
+import os
 import re
 from collections import Counter, defaultdict
 from typing import Dict, List, Set, Tuple
 
 import numpy as np
+from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 
 class ClusterAnalyzer:
     """Analyzes clusters to extract actionable insights."""
 
-    # Common stop words to exclude from cluster names
-    STOP_WORDS = {
-        "the", "a", "an", "is", "are", "was", "were", "be", "been",
-        "being", "have", "has", "had", "do", "does", "did", "will",
-        "would", "could", "should", "may", "might", "must", "can",
-        "this", "that", "these", "those", "i", "you", "he", "she",
-        "it", "we", "they", "me", "him", "her", "us", "them",
-        "my", "your", "his", "her", "its", "our", "their",
-        "and", "or", "but", "if", "then", "else", "when", "where",
-        "why", "how", "what", "which", "who", "whom", "whose"
-    }
+    def __init__(self, model: str = "gpt-4o-mini"):
+        self.model = model
+        self._client = None
 
-    def extract_cluster_name(self, queries: List[str], top_n: int = 3) -> str:
+    @property
+    def client(self):
+        if self._client is None:
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY not set. Set it to use LLM-based cluster naming.")
+            self._client = OpenAI(api_key=api_key)
+        return self._client
+
+    def extract_cluster_name(self, queries: List[str]) -> str:
         """
-        Extract a descriptive name for a cluster from its queries.
-
+        Extract a semantic name for a cluster using LLM.
+        
         Args:
             queries: List of queries in the cluster
-            top_n: Number of top terms to include
-
+            
         Returns:
-            Cluster name (e.g., "billing subscription cancel")
+            Short semantic cluster name (2-5 words)
         """
-        # Combine all queries
-        text = " ".join(queries).lower()
+        if not queries:
+            return "misc"
+        
+        # Sample up to 10 queries for naming
+        sample_queries = queries[:10]
+        queries_text = "\n".join(f"- {q}" for q in sample_queries)
+        
+        system_prompt = """You name clusters of user support queries. Generate a specific, actionable name (2-4 words) that describes the EXACT topic.
 
-        # Extract words (remove punctuation)
-        words = re.findall(r'\b[a-z]+\b', text)
+Rules:
+- Use 2-4 words maximum
+- Be SPECIFIC about what users want, not generic
+- NEVER use generic words like: "queries", "tickets", "issues", "problems", "questions", "requests"
+- Focus on the subject matter, not the fact that it's a query
+- Good examples: "Slack integration setup", "Subscription cancellation", "PTO approval workflow", "Fingerprint clock-in", "Timesheet export format"
+- Bad examples: "Ticket queries" (too generic), "Help requests" (obvious), "Support issues" (meaningless)
 
-        # Filter out stop words and short words
-        words = [w for w in words if w not in self.STOP_WORDS and len(w) > 2]
+Respond with ONLY the cluster name, no quotes, no explanation."""
 
-        # Count frequencies
-        word_counts = Counter(words)
+        user_prompt = f"Queries in this cluster:\n{queries_text}\n\nCluster name:"
 
-        # Get top terms
-        top_terms = [term for term, _ in word_counts.most_common(top_n)]
-
-        # Join to form name
-        return " ".join(top_terms) if top_terms else "misc"
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=20
+            )
+            
+            name = response.choices[0].message.content.strip()
+            # Clean up
+            name = name.strip('"\'').strip()
+            if len(name) > 60:
+                name = name[:60]
+            if len(name) < 3:
+                return self._fallback_name(queries)
+            return name
+            
+        except Exception as e:
+            logger.warning(f"LLM naming failed: {e}, using fallback")
+            return self._fallback_name(queries)
+    
+    def _fallback_name(self, queries: List[str]) -> str:
+        """Fallback to key phrase extraction if LLM fails."""
+        # Extract bigrams (2-word phrases) instead of single words
+        from collections import Counter
+        
+        all_bigrams = []
+        stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 
+                      'to', 'of', 'and', 'in', 'for', 'on', 'with', 'at', 'by',
+                      'from', 'as', 'it', 'this', 'that', 'have', 'has', 'had'}
+        
+        for query in queries:
+            words = re.findall(r'\b[a-z]+\b', query.lower())
+            words = [w for w in words if w not in stop_words and len(w) > 2]
+            # Generate bigrams
+            bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words)-1)]
+            all_bigrams.extend(bigrams)
+        
+        if all_bigrams:
+            most_common = Counter(all_bigrams).most_common(1)[0][0]
+            return most_common
+        
+        # Last resort: first few words of first query
+        first_query = queries[0] if queries else "misc"
+        words = first_query.split()[:3]
+        return " ".join(words) if words else "misc"
 
     def analyze_cluster_quality(
         self,
         queries: List[str],
         labels: np.ndarray,
-        evaluated_results: List[Dict]
+        evaluated_results: List[Dict] = None
     ) -> Dict[int, Dict]:
         """
         Analyze quality metrics for each cluster.
@@ -63,7 +122,7 @@ class ClusterAnalyzer:
         Args:
             queries: List of query texts
             labels: Cluster labels
-            evaluated_results: Evaluation results for each query
+            evaluated_results: Evaluation results for each query (optional)
 
         Returns:
             Dict mapping cluster_id to quality metrics
@@ -78,31 +137,36 @@ class ClusterAnalyzer:
             # Get indices for this cluster
             indices = np.where(labels == label)[0]
 
-            # Get queries and results for this cluster
+            # Get queries for this cluster
             cluster_queries = [queries[i] for i in indices]
-            cluster_results = [evaluated_results[i] for i in indices if i < len(evaluated_results)]
 
             # Calculate metrics
-            total = len(cluster_results)
-            well_answered = sum(1 for r in cluster_results
-                               if r.get("evaluation", {}).get("bucket") == "well_answered")
-            partial = sum(1 for r in cluster_results
-                         if r.get("evaluation", {}).get("bucket") == "partial")
+            total = len(cluster_queries)
 
-            # Calculate average score
-            scores = [r.get("evaluation", {}).get("overall_score", 0)
-                     for r in cluster_results]
-            avg_score = sum(scores) / len(scores) if scores else 0
-
-            # Extract top issues (queries with partial answers)
-            partial_queries = [r.get("query", "")
-                             for r in cluster_results
-                             if r.get("evaluation", {}).get("bucket") == "partial"]
-
-            # Get recommendations
-            actions = Counter(r.get("action", "UNKNOWN")
-                            for r in cluster_results
-                            if r.get("evaluation", {}).get("bucket") == "partial")
+            if evaluated_results and len(evaluated_results) >= len(queries):
+                # Full quality analysis with evaluation data
+                cluster_results = [evaluated_results[i] for i in indices]
+                well_answered = sum(1 for r in cluster_results
+                                   if r.get("evaluation", {}).get("bucket") == "well_answered")
+                partial = sum(1 for r in cluster_results
+                             if r.get("evaluation", {}).get("bucket") == "partial")
+                scores = [r.get("evaluation", {}).get("overall_score", 0)
+                         for r in cluster_results]
+                avg_score = sum(scores) / len(scores) if scores else 0
+                partial_queries = [r.get("query", "")
+                                 for r in cluster_results
+                                 if r.get("evaluation", {}).get("bucket") == "partial"]
+                actions = Counter(r.get("action", "UNKNOWN")
+                                for r in cluster_results
+                                if r.get("evaluation", {}).get("bucket") == "partial")
+                recommended_actions = dict(actions.most_common(3))
+            else:
+                # Basic analysis without evaluation data
+                well_answered = 0
+                partial = 0
+                avg_score = 0
+                partial_queries = []
+                recommended_actions = {}
 
             cluster_quality[int(label)] = {
                 "name": self.extract_cluster_name(cluster_queries),
@@ -112,7 +176,7 @@ class ClusterAnalyzer:
                 "quality_pct": (well_answered / total * 100) if total > 0 else 0,
                 "avg_score": avg_score,
                 "top_partial_queries": partial_queries[:3],
-                "recommended_actions": dict(actions.most_common(3))
+                "recommended_actions": recommended_actions
             }
 
         return cluster_quality

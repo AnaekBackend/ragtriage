@@ -29,7 +29,8 @@ class InteractiveClusterVisualizer:
         queries: List[str],
         cluster_names: Dict[int, str],
         evaluated_results: List[Dict],
-        title: str = "Query Clusters (Interactive)"
+        title: str = "Query Clusters (Interactive)",
+        min_cluster_size_viz: int = 5
     ) -> str:
         """
         Create interactive HTML plot.
@@ -73,6 +74,8 @@ class InteractiveClusterVisualizer:
         cluster_stats = {}
 
         # Add traces for each cluster
+        annotations_placed = []  # Track annotation positions to avoid overlap
+        
         for label in unique_labels:
             mask = labels == label
             cluster_indices = np.where(mask)[0]
@@ -150,13 +153,29 @@ class InteractiveClusterVisualizer:
                 )
             )
 
-            # Add cluster center annotation
-            center_x = x_coords.mean()
-            center_y = y_coords.mean()
+            # Skip annotation for small clusters (below visualization threshold)
+            if total < min_cluster_size_viz:
+                continue
+
+            # Add cluster center annotation with jitter to avoid overlap
+            center_x = float(x_coords.mean())
+            center_y = float(y_coords.mean())
+            
+            # Apply jitter if position is too close to existing annotations
+            jitter_x, jitter_y = 0, 0
+            for existing_x, existing_y in annotations_placed:
+                distance = np.sqrt((center_x - existing_x)**2 + (center_y - existing_y)**2)
+                if distance < 2.0:  # Too close, apply offset
+                    jitter_x += 1.5
+                    jitter_y += 1.0
+            
+            final_x = center_x + jitter_x
+            final_y = center_y + jitter_y
+            annotations_placed.append((final_x, final_y))
 
             fig.add_annotation(
-                x=center_x,
-                y=center_y,
+                x=final_x,
+                y=final_y,
                 text=f"<b>{short_name}</b><br>{total} queries",
                 showarrow=False,
                 font=dict(size=9, color="black"),
@@ -207,16 +226,18 @@ class InteractiveClusterVisualizer:
                 font=dict(size=16)
             ),
             xaxis=dict(
-                title="UMAP Dimension 1",
                 showgrid=True,
                 gridwidth=1,
-                gridcolor='lightgray'
+                gridcolor='lightgray',
+                zeroline=False,
+                showticklabels=False
             ),
             yaxis=dict(
-                title="UMAP Dimension 2",
                 showgrid=True,
                 gridwidth=1,
-                gridcolor='lightgray'
+                gridcolor='lightgray',
+                zeroline=False,
+                showticklabels=False
             ),
             legend=dict(
                 title=dict(text="Clusters (click to toggle)"),
@@ -259,6 +280,585 @@ class InteractiveClusterVisualizer:
 
         # Return HTML string
         return fig.to_html(include_plotlyjs='cdn', full_html=True)
+
+    def create_treemap(
+        self,
+        cluster_names: Dict[int, str],
+        cluster_quality: Dict,
+        evaluated_results: List[Dict],
+        title: str = "Query Clusters (Treemap View)"
+    ) -> str:
+        """
+        Create interactive treemap visualization.
+
+        Treemaps use space efficiently and eliminate overlap issues.
+        Each cluster is a rectangle sized by query count.
+
+        Args:
+            cluster_names: Mapping of cluster_id to descriptive name
+            cluster_quality: Quality metrics per cluster
+            evaluated_results: List of evaluation results
+            title: Plot title
+
+        Returns:
+            HTML string for the interactive treemap
+        """
+        try:
+            import plotly.graph_objects as go
+        except ImportError:
+            logger.error("Plotly not installed. Run: uv add plotly")
+            raise
+
+        # Build treemap data
+        labels = []
+        parents = []
+        values = []
+        colors = []
+        hover_texts = []
+        
+        # Store cluster data for drill-down table
+        cluster_queries_data = {}
+
+        # Root node
+        labels.append("All Clusters")
+        parents.append("")
+        values.append(0)  # Will be sum of children
+        colors.append("lightgray")
+        hover_texts.append("Root")
+
+        # Sort clusters by size (largest first)
+        sorted_clusters = sorted(
+            cluster_quality.items(),
+            key=lambda x: x[1].get('query_count', 0),
+            reverse=True
+        )
+
+        for cluster_id, metrics in sorted_clusters:
+            cluster_id_int = int(cluster_id)
+            # Get name from cluster_names if available, otherwise use metrics name
+            name = cluster_names.get(cluster_id_int, metrics.get('name', f"Cluster {cluster_id}"))
+            count = metrics.get('query_count', 0)
+            partial = metrics.get('partial_answers', 0)
+            quality_pct = metrics.get('quality_pct', 0)
+            
+            # Get queries for this cluster from evaluated_results
+            cluster_queries = []
+            recommended_actions = metrics.get('recommended_actions', {})
+            top_action = list(recommended_actions.keys())[0] if recommended_actions else "UNKNOWN"
+            
+            # Find queries belonging to this cluster
+            if evaluated_results:
+                for result in evaluated_results:
+                    # Match by cluster name or check if result has cluster_id
+                    result_cluster = result.get('cluster_id')
+                    if result_cluster == cluster_id_int or result_cluster == str(cluster_id_int):
+                        query_text = result.get('query', '')
+                        if query_text:
+                            cluster_queries.append(query_text)
+
+            # Truncate long names for display
+            short_name = name[:35] + "..." if len(name) > 35 else name
+
+            labels.append(short_name)
+            parents.append("All Clusters")
+            values.append(count)
+            
+            # Store data for potential drill-down
+            cluster_queries_data[short_name] = {
+                'full_name': name,
+                'queries': cluster_queries[:5],  # Top 5 queries
+                'action': top_action,
+                'count': count
+            }
+
+            # Color based on quality
+            if quality_pct >= 70:
+                colors.append("#2ecc71")  # Green
+            elif quality_pct >= 40:
+                colors.append("#f39c12")  # Orange
+            else:
+                colors.append("#e74c3c")  # Red
+
+            # Enhanced hover text with actionable info
+            hover_text = f"<b>{name}</b><br><br>"
+            hover_text += f"<b>Action needed:</b> {top_action}<br>"
+            hover_text += f"Queries: {count} | Partial: {partial}<br><br>"
+            
+            # Add sample queries
+            if cluster_queries:
+                hover_text += "<b>Sample queries:</b><br>"
+                for i, q in enumerate(cluster_queries[:3], 1):
+                    short_q = q[:60] + "..." if len(q) > 60 else q
+                    hover_text += f"{i}. {short_q}<br>"
+            
+            hover_texts.append(hover_text)
+
+        # Create treemap
+        fig = go.Figure(go.Treemap(
+            labels=labels,
+            parents=parents,
+            values=values,
+            hovertemplate='%{customdata}<extra></extra>',
+            customdata=hover_texts,
+            marker=dict(
+                colors=colors,
+                line=dict(width=2, color='white')
+            ),
+            textfont=dict(size=11),
+            pathbar=dict(visible=False),
+            textposition='middle center',
+            insidetextfont=dict(size=10)
+        ))
+
+        # Update layout
+        fig.update_layout(
+            width=self.width,
+            height=self.height,
+            title=dict(
+                text=title,
+                x=0.5,
+                font=dict(size=16)
+            ),
+            margin=dict(t=50, l=25, r=25, b=25)
+        )
+
+        # Add quality legend annotation
+        fig.add_annotation(
+            x=0.02,
+            y=0.98,
+            xref="paper",
+            yref="paper",
+            text="<b>Quality Legend:</b><br>" +
+                 "🟢 Green = Well answered (≥70%)<br>" +
+                 "🟠 Orange = Mixed (40-69%)<br>" +
+                 "🔴 Red = Needs work (<40%)",
+            showarrow=False,
+            font=dict(size=10),
+            align="left",
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="gray",
+            borderwidth=1,
+            borderpad=8
+        )
+
+        return fig.to_html(include_plotlyjs='cdn', full_html=True)
+
+    def create_actionable_treemap(
+        self,
+        hierarchy: Dict,
+        title: str = "Actionable Items by Category → Topic → Action"
+    ) -> str:
+        """
+        Create actionable treemap with click-to-view details panel.
+        
+        Two-panel layout: treemap on left (65%), details panel on right (35%).
+        Click any leaf tile to see full details persistently.
+        
+        Args:
+            hierarchy: {category: {topic: {action: [items]}}}
+            title: Plot title
+            
+        Returns:
+            HTML string for the actionable treemap with details panel
+        """
+        try:
+            import plotly.graph_objects as go
+            import json
+        except ImportError:
+            logger.error("Plotly not installed. Run: uv add plotly")
+            raise
+        
+        # Build treemap data and collect item details
+        labels = []
+        parents = []
+        values = []
+        colors = []
+        ids = []  # Unique IDs for each node
+        
+        # Store all item data for JS access
+        item_data = {}  # id -> {category, topic, action, items}
+        
+        # Color mapping for actions
+        action_colors = {
+            "DOC_WRITE": "#e74c3c",  # Red = needs new doc
+            "DOC_UPDATE": "#f39c12"  # Orange = update existing
+        }
+        
+        total_items = 0
+        node_id = 0
+        
+        # Track parent IDs (not labels) for proper hierarchy
+        root_id = "root"
+        cat_ids = {}  # category -> cat_id
+        topic_ids = {}  # (category, topic) -> topic_id
+        
+        # Root node (value will be set after counting all items)
+        labels.append("Actionable Items")
+        parents.append("")
+        values.append(0)  # Placeholder, will update later
+        colors.append("lightgray")
+        ids.append(root_id)
+        node_id += 1
+        
+        for category, topics in sorted(hierarchy.items()):
+            # Category node
+            cat_count = sum(
+                len(items) 
+                for topics_dict in topics.values() 
+                for items in topics_dict.values()
+            )
+            total_items += cat_count
+            
+            cat_id = f"cat_{node_id}"
+            cat_ids[category] = cat_id
+            cat_label = f"📁 {category}"
+            labels.append(cat_label)
+            parents.append(root_id)  # Use ID, not label
+            values.append(cat_count)
+            colors.append("#3498db")  # Blue for categories
+            ids.append(cat_id)
+            node_id += 1
+            
+            for topic, actions in sorted(topics.items()):
+                # Topic node
+                topic_count = sum(len(items) for items in actions.values())
+                
+                topic_id = f"topic_{node_id}"
+                topic_ids[(category, topic)] = topic_id
+                topic_label = f"📝 {topic[:30]}"
+                labels.append(topic_label)
+                parents.append(cat_id)  # Use ID, not label
+                values.append(topic_count)
+                colors.append("#9b59b6")  # Purple for topics
+                ids.append(topic_id)
+                node_id += 1
+                
+                for action, items in actions.items():
+                    if not items:
+                        continue
+                    
+                    # Action/Leaf node
+                    action_id = f"action_{node_id}"
+                    action_label = f"{action} ({len(items)})"
+                    labels.append(action_label)
+                    parents.append(topic_id)  # Use ID, not label
+                    values.append(len(items))
+                    colors.append(action_colors.get(action, "#95a5a6"))
+                    ids.append(action_id)
+                    
+                    # Store full item data for this node
+                    item_data[action_id] = {
+                        "category": category,
+                        "topic": topic,
+                        "action": action,
+                        "count": len(items),
+                        "items": items
+                    }
+                    node_id += 1
+        
+        # Update root value to total
+        values[0] = total_items
+        
+        # Create treemap
+        fig = go.Figure(go.Treemap(
+            labels=labels,
+            parents=parents,
+            values=values,
+            ids=ids,
+            branchvalues='total',  # Use total values for proper sizing
+            marker=dict(
+                colors=colors,
+                line=dict(width=2, color='white')
+            ),
+            textfont=dict(size=11),
+            pathbar=dict(visible=True),
+            textposition='middle center',
+            insidetextfont=dict(size=10)
+        ))
+        
+        # Update layout for left panel
+        fig.update_layout(
+            width=900,
+            height=700,
+            title=dict(
+                text=f"{title}<br><sub>{total_items} items needing documentation work</sub>",
+                x=0.5,
+                font=dict(size=16)
+            ),
+            margin=dict(t=80, l=25, r=25, b=25)
+        )
+        
+        # Get treemap HTML div
+        treemap_div = fig.to_html(include_plotlyjs='cdn', full_html=False, div_id="treemap")
+        
+        # Serialize item data for JavaScript
+        item_data_json = json.dumps(item_data)
+        
+        # Create full HTML with two-panel layout
+        html_template = f'''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{title}</title>
+    <style>
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            height: 100vh;
+            overflow: hidden;
+        }}
+        .header {{
+            background: #2c3e50;
+            color: white;
+            padding: 15px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .header h1 {{
+            font-size: 18px;
+            font-weight: 500;
+        }}
+        .header .count {{
+            background: rgba(255,255,255,0.2);
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 14px;
+        }}
+        .container {{
+            display: flex;
+            height: calc(100vh - 60px);
+        }}
+        .treemap-panel {{
+            flex: 0 0 65%;
+            background: white;
+            padding: 15px;
+            overflow: auto;
+        }}
+        .details-panel {{
+            flex: 0 0 35%;
+            background: #fafafa;
+            border-left: 1px solid #ddd;
+            padding: 20px;
+            overflow-y: auto;
+        }}
+        .details-panel h2 {{
+            font-size: 14px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #ddd;
+        }}
+        .empty-state {{
+            color: #999;
+            font-style: italic;
+            text-align: center;
+            padding: 40px 20px;
+        }}
+        .item-card {{
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 4px solid #ddd;
+        }}
+        .item-card.doc-write {{ border-left-color: #e74c3c; }}
+        .item-card.doc-update {{ border-left-color: #f39c12; }}
+        .item-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }}
+        .item-number {{
+            background: #2c3e50;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }}
+        .item-action {{
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 3px;
+            text-transform: uppercase;
+        }}
+        .item-action.doc-write {{ background: #fee; color: #c0392b; }}
+        .item-action.doc-update {{ background: #fff3e0; color: #e65100; }}
+        .item-query {{
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }}
+        .item-meta {{
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+        }}
+        .item-meta strong {{
+            color: #333;
+        }}
+        .item-gap {{
+            font-size: 12px;
+            color: #555;
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            line-height: 1.5;
+        }}
+        .breadcrumb {{
+            background: #e8f4f8;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }}
+        .breadcrumb span {{
+            color: #666;
+        }}
+        .breadcrumb strong {{
+            color: #2c3e50;
+        }}
+        .legend {{
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+        }}
+        .legend-item {{
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }}
+        .legend-dot {{
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📋 {title}</h1>
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: #e74c3c;"></div>
+                    <span>DOC_WRITE (new article)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: #f39c12;"></div>
+                    <span>DOC_UPDATE (existing)</span>
+                </div>
+            </div>
+            <div class="count">{total_items} items</div>
+        </div>
+    </div>
+    <div class="container">
+        <div class="treemap-panel">
+            {treemap_div}
+        </div>
+        <div class="details-panel" id="detailsPanel">
+            <h2>Item Details</h2>
+            <div class="empty-state">
+                👆 Click on any DOC_WRITE or DOC_UPDATE tile in the treemap to view details
+            </div>
+        </div>
+    </div>
+    <script>
+        const itemData = {item_data_json};
+        
+        document.addEventListener('DOMContentLoaded', function() {{
+            const treemapElement = document.getElementById('treemap');
+            
+            // Wait for Plotly to render then attach click handler
+            function attachClickHandler() {{
+                if (typeof Plotly !== 'undefined' && treemapElement) {{
+                    console.log('Attaching plotly_click handler');
+                    treemapElement.on('plotly_click', function(data) {{
+                        console.log('Plotly click received:', data);
+                        if (data.points && data.points.length > 0) {{
+                            const point = data.points[0];
+                            const nodeId = point.id;
+                            console.log('Clicked node:', nodeId);
+                            
+                            if (itemData[nodeId]) {{
+                                showDetails(itemData[nodeId]);
+                            }} else {{
+                                console.log('No data found for node:', nodeId);
+                            }}
+                        }}
+                    }});
+                }} else {{
+                    console.log('Plotly not ready, retrying...');
+                    setTimeout(attachClickHandler, 200);
+                }}
+            }}
+            
+            // Start trying after a short delay
+            setTimeout(attachClickHandler, 300);
+        }});
+        
+        function showDetails(data) {{
+            const panel = document.getElementById('detailsPanel');
+            
+            let itemsHtml = '';
+            data.items.forEach((item, idx) => {{
+                const actionClass = data.action === 'DOC_WRITE' ? 'doc-write' : 'doc-update';
+                itemsHtml += `
+                    <div class="item-card ${{actionClass}}">
+                        <div class="item-header">
+                            <div class="item-number">${{idx + 1}}</div>
+                            <div class="item-action ${{actionClass}}">${{data.action}}</div>
+                        </div>
+                        <div class="item-query">${{escapeHtml(item.query)}}</div>
+                        <div class="item-meta">
+                            <strong>Target:</strong> ${{(item.target_article && item.target_article !== 'N/A') ? item.target_article : 'Not specified'}}
+                        </div>
+                        <div class="item-gap">
+                            <strong>Gap:</strong> ${{escapeHtml(item.gap)}}
+                        </div>
+                    </div>
+                `;
+            }});
+            
+            panel.innerHTML = `
+                <h2>Item Details</h2>
+                <div class="breadcrumb">
+                    <strong>${{data.category}}</strong> <span>›</span> 
+                    <strong>${{data.topic}}</strong> <span>›</span> 
+                    <strong>${{data.action}}</strong>
+                    <span style="float: right; color: #999;">${{data.count}} item${{data.count > 1 ? 's' : ''}}</span>
+                </div>
+                ${{itemsHtml}}
+            `;
+        }}
+        
+        function escapeHtml(text) {{
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }}
+    </script>
+</body>
+</html>'''
+        
+        return html_template
 
     def save_html(self, html_content: str, filepath: str):
         """

@@ -36,14 +36,15 @@ class ReportGenerator:
         doc_write = len([r for r in action_items if r.get("action") == "DOC_WRITE"])
         doc_update = len([r for r in action_items if r.get("action") == "DOC_UPDATE"])
         
-        # Group by target article
-        article_actions = defaultdict(list)
-        for item in action_items:
-            article = item.get("target_article", "Unknown")
-            article_actions[article].append(item)
-        
-        # Sort by count
-        sorted_articles = sorted(article_actions.items(), key=lambda x: -len(x[1]))
+        # Group DOC_WRITE items by (category, topic) for better organization
+        write_items = [r for r in action_items if r.get("action") == "DOC_WRITE"]
+        write_by_topic = defaultdict(list)
+        for item in write_items:
+            key = (item.get("category", "GENERAL"), item.get("topic", "Unknown"))
+            write_by_topic[key].append(item)
+
+        # Sort by count (most questions first)
+        sorted_write_topics = sorted(write_by_topic.items(), key=lambda x: -len(x[1]))
         
         # Calculate percentages safely
         understanding_pct = (understanding/total*100) if total > 0 else 0
@@ -88,27 +89,66 @@ class ReportGenerator:
 
 """
         
-        # Articles to write
-        write_articles = [(art, items) for art, items in sorted_articles 
-                         if items[0].get("action") == "DOC_WRITE"]
-        for article, items in write_articles[:10]:
-            report += f"\n**{article}** ({len(items)} questions)\n"
-            for item in items[:3]:
-                report += f"- {item['query'][:100]}...\n"
-            if len(items) > 3:
-                report += f"- *...and {len(items) - 3} more*\n"
+        # Articles to write - grouped by topic with content gaps
+        for (category, topic), items in sorted_write_topics[:15]:
+            # Aggregate gaps and sample queries
+            gaps = [item.get("gap", "") for item in items if item.get("gap")]
+            unique_gaps = list(dict.fromkeys(gaps))[:3]  # Deduplicate, max 3
+            sample_queries = [item.get("query", "") for item in items[:2]]
+
+            report += f"\n#### {topic.title()} ({len(items)} questions)\n\n"
+            report += f"**Category:** {category}  \n"
+            report += f"**Article Name:** {items[0].get('target_article', topic.title())}\n\n"
+
+            report += "**Content to Cover:**\n"
+            for gap in unique_gaps:
+                report += f"- {gap}\n"
+
+            if len(gaps) > 3:
+                report += f"- *...and {len(gaps) - 3} more content areas*\n"
+
+            report += "\n**Sample Questions:**\n"
+            for query in sample_queries:
+                short_query = query[:80] + "..." if len(query) > 80 else query
+                report += f"- \"{short_query}\"\n"
+
+            report += "\n---\n"
         
         report += f"\n### Articles to Update ({doc_update})\n\n"
-        
-        # Articles to update
-        update_articles = [(art, items) for art, items in sorted_articles 
-                          if items[0].get("action") == "DOC_UPDATE"]
-        for article, items in update_articles[:10]:
-            report += f"\n**{article}** ({len(items)} questions)\n"
-            for item in items[:3]:
-                report += f"- {item['query'][:100]}...\n"
-            if len(items) > 3:
-                report += f"- *...and {len(items) - 3} more*\n"
+
+        # Group DOC_UPDATE items by target_article
+        update_items = [r for r in action_items if r.get("action") == "DOC_UPDATE"]
+        update_by_article = defaultdict(list)
+        for item in update_items:
+            key = item.get("target_article", "Unknown")
+            update_by_article[key].append(item)
+
+        # Sort by count
+        sorted_update_articles = sorted(update_by_article.items(), key=lambda x: -len(x[1]))
+
+        for article, items in sorted_update_articles[:15]:
+            # Aggregate gaps and categories
+            gaps = [item.get("gap", "") for item in items if item.get("gap")]
+            unique_gaps = list(dict.fromkeys(gaps))[:3]
+            categories = list(set(item.get("category", "GENERAL") for item in items))
+            sample_queries = [item.get("query", "") for item in items[:2]]
+
+            report += f"\n#### {article} ({len(items)} questions)\n\n"
+            report += f"**Category:** {', '.join(categories)}\n\n"
+
+            report += "**Updates Needed:**\n"
+            for gap in unique_gaps:
+                report += f"- {gap}\n"
+
+            if len(gaps) > 3:
+                report += f"- *...and {len(gaps) - 3} more updates needed*\n"
+
+            report += "\n**Sample Questions:**\n"
+            for query in sample_queries:
+                short_query = query[:80] + "..." if len(query) > 80 else query
+                report += f"- \"{short_query}\"\n"
+
+            report += "\n---\n"
         
         report += """
 ---
