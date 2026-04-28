@@ -65,18 +65,28 @@ pip install -e .
 
 1. **Set your OpenAI API key:**
    ```bash
-   echo "OPENAI_API_KEY=your_key_here" > .env
+   echo "OPENAI_API_KEY=sk-*** > .env
    ```
 
-2. **Run evaluation on sample data:**
+2. **Choose your workflow:**
+
+   **Option A: Full evaluation with actionable insights** (Recommended)
    ```bash
-   uv run eval
+   # Evaluates queries + clusters actionable items by Category → Topic → Action
+   uv run ragtriage-eval --cluster -i your_queries.jsonl
+   ```
+
+   **Option B: Quick clustering** (No LLM needed)
+   ```bash
+   # Fast semantic clustering of all queries
+   uv run ragtriage-cluster -i your_queries.jsonl
    ```
 
 3. **View results:**
    ```bash
    cat output/report.md
    open output/action_items.csv  # In Excel/Sheets
+   open output/treemap.html      # Interactive visualization
    ```
 
 ## Using Your Own Data
@@ -123,12 +133,85 @@ For partial understanding queries:
 
 Note: Without your full document library, "DOC_WRITE" means "no relevant context was found" which could mean the doc doesn't exist OR your RAG failed to retrieve it. Both are actionable.
 
-### Step 4: Reporting
+### Step 4: Clustering & Visualization
+
+Queries are grouped semantically to identify patterns:
+
+**Pre-Evaluation Clustering** (`ragtriage-cluster` without eval results):
+- Clusters ALL queries (understanding + incident + spam)
+- Groups by semantic similarity only
+- Useful for: Initial data exploration, identifying query themes
+- No OpenAI API key required
+
+**Post-Evaluation Clustering** (`ragtriage-eval --cluster` or with cached eval results):
+- Clusters only actionable UNDERSTANDING queries with partial answers
+- Hierarchical grouping: **Category** → **Topic** → **Action** (DOC_WRITE/DOC_UPDATE)
+- Useful for: Prioritized backlog for documentation team
+- Generates interactive treemap:
+
+![Actionable Items Treemap](assets/treemap-example.jpg)
+
+### Step 5: Reporting
 
 Results are compiled into:
 - `report.md`: Executive summary with statistics and top issues
 - `action_items.csv`: Detailed spreadsheet for CS team
+- `treemap.html`: Interactive visualization of actionable items
 - `analyzed_results.json`: Full data for custom analysis
+
+## Commands
+
+RAGTriage provides two CLI commands for different use cases:
+
+### `ragtriage-eval` - Full Evaluation Pipeline
+
+Runs the complete analysis: evaluation → classification → action detection → (optional) clustering
+
+```bash
+# Basic evaluation (Steps 1-3)
+uv run ragtriage-eval -i queries.jsonl
+
+# Full pipeline with clustering and visualization (Steps 1-5)
+uv run ragtriage-eval --cluster -i queries.jsonl
+
+# Re-run analysis using cached evaluation results
+uv run ragtriage-eval -i queries.jsonl  # Skips Step 1 if evaluation_results.json exists
+
+# Force re-evaluation from scratch
+uv run ragtriage-eval --refresh -i queries.jsonl
+```
+
+**Outputs:**
+- `evaluation_results.json` - Step 1 scores (cached)
+- `analyzed_results.json` - Steps 2-3 classifications and action items
+- `report.md` - Human-readable summary
+- `action_items.csv` - Spreadsheet for CS team
+- `clustering_results.json` + `treemap.html` - (with `--cluster`)
+
+### `ragtriage-cluster` - Standalone Clustering
+
+Fast semantic clustering without LLM evaluation. Useful when you just want to explore query patterns.
+
+```bash
+# Quick clustering without evaluation (no OpenAI key needed)
+uv run ragtriage-cluster -i queries.jsonl
+
+# Cluster using cached evaluation results (actionable mode)
+uv run ragtriage-cluster -i queries.jsonl  # Auto-detects eval_results.json
+```
+
+**Behavior depends on available data:**
+- **Without eval results**: Pre-evaluation clustering — groups ALL queries semantically
+- **With eval results**: Post-evaluation clustering — groups only actionable items hierarchically
+
+**When to use which:**
+
+| Use Case | Command | Cost | Time |
+|----------|---------|------|------|
+| Full actionable backlog for docs team | `ragtriage-eval --cluster` | ~$0.01/query | ~2s/query |
+| Re-generate report from cached evals | `ragtriage-eval` (no --refresh) | Free | Seconds |
+| Quick exploration of query themes | `ragtriage-cluster` | Free | Seconds |
+| Update clustering after eval changes | `ragtriage-cluster` | Free | Seconds |
 
 ## Real-World Results
 
@@ -155,6 +238,14 @@ Input JSONL fields:
 - `query` (required): User's question
 - `contexts` (required): List of retrieved context strings
 - `generated_answer` (required): Your RAG system's response
+
+Output files:
+- `evaluation_results.json` - Step 1 scores (cached for resumability)
+- `analyzed_results.json` - Full analysis with classifications and action items
+- `report.md` - Executive summary
+- `action_items.csv` - Spreadsheet for CS team
+- `treemap.html` - Interactive visualization (with `--cluster`)
+- `clustering_results.json` - Cluster assignments and metadata
 
 Output JSON fields (additional):
 - `evaluation.scores`: 5-dimension scores
